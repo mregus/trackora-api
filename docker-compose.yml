@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: fleetwise-postgres
+    environment:
+      POSTGRES_DB: fleetwise
+      POSTGRES_USER: fleetwise
+      POSTGRES_PASSWORD: fleetwise
+    ports:
+      - "5432:5432"
+    volumes:
+      - fleetwise_pgdata:/var/lib/postgresql/data
+
+  api:
+    volumes:
+      - fleetwise_uploads:/app/uploads
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fleetwise-api
+    depends_on:
+      - postgres
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fleetwise
+      SPRING_DATASOURCE_USERNAME: fleetwise
+      SPRING_DATASOURCE_PASSWORD: fleetwise
+      JWT_SECRET: fleetwise-dev-secret-must-be-at-least-32-chars
+      OPENAI_ENABLED: "false"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy-key}
+      FLEETWISE_UPLOADS_DIR: /app/uploads
+    ports:
+      - "8080:8080"
+
+volumes:
+  fleetwise_pgdata:
+  fleetwise_uploads:

@@ -1,0 +1,39 @@
+spring:
+  datasource:
+    url: jdbc:tc:postgresql:16-alpine:///fleetwise_test  # Testcontainers JDBC URL
+    username: fleetwise
+    password: fleetwise
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    show-sql: false
+
+  flyway:
+    enabled: true
+    clean-disabled: false
+    locations: classpath:db/migration
+
+openai:
+  enabled: false
+  api-key: test-key
+  base-url: https://api.openai.com/v1
+  model: gpt-4o-mini
+
+jwt:
+  secret: test-secret-key-must-be-at-least-32-chars
+  expiration-minutes: 120
+
+  # reduce log noise during test runs
+  main:
+    banner-mode: off
+  logging:
+    level:
+      root: WARN
+      org.springframework.test.context: INFO
+      com.fleetwise: DEBUG

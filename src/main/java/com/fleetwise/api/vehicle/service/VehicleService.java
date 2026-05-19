@@ -1,0 +1,147 @@
+package com.fleetwise.api.vehicle.service;
+
+import com.fleetwise.api.common.exception.ResourceNotFoundException;
+import com.fleetwise.api.fleet.entity.Fleet;
+import com.fleetwise.api.fleet.repository.FleetRepository;
+import com.fleetwise.api.vehicle.dto.*;
+import com.fleetwise.api.vehicle.entity.Vehicle;
+import com.fleetwise.api.vehicle.entity.VehicleStatus;
+import com.fleetwise.api.vehicle.repository.VehicleRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class VehicleService {
+
+    private final VehicleRepository vehicleRepository;
+    private final FleetRepository fleetRepository;
+
+    @Transactional
+    public VehicleResponse createVehicle(
+            UUID fleetId,
+            UUID ownerUserId,
+            CreateVehicleRequest request
+    ) {
+
+        Fleet fleet = fleetRepository.findByIdAndOwnerId(fleetId, ownerUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("Fleet not found"));
+
+        Vehicle vehicle = Vehicle.builder()
+                .fleet(fleet)
+                .vin(request.vin())
+                .make(request.make())
+                .model(request.model())
+                .year(request.year())
+                .licensePlate(request.licensePlate())
+                .currentMileage(request.currentMileage())
+                .status(VehicleStatus.ACTIVE)
+                .build();
+
+        Vehicle saved = vehicleRepository.save(vehicle);
+
+        return toResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public List<VehicleResponse> getFleetVehicles(
+            UUID fleetId,
+            UUID ownerUserId
+    ) {
+
+        fleetRepository.findByIdAndOwnerId(fleetId, ownerUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("Fleet not found"));
+
+        return vehicleRepository.findByFleetIdOrderByCreatedAtDesc(fleetId)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public VehicleResponse getVehicle(
+            UUID vehicleId,
+            UUID ownerUserId
+    ) {
+
+        Vehicle vehicle = vehicleRepository.findByIdAndFleetOwnerId(
+                        vehicleId,
+                        ownerUserId
+                )
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        return toResponse(vehicle);
+    }
+
+    @Transactional
+    public VehicleResponse updateVehicle(
+            UUID vehicleId,
+            UUID ownerUserId,
+            UpdateVehicleRequest request
+    ) {
+
+        Vehicle vehicle = vehicleRepository.findByIdAndFleetOwnerId(
+                        vehicleId,
+                        ownerUserId
+                )
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        vehicle.setVin(request.vin());
+        vehicle.setMake(request.make());
+        vehicle.setModel(request.model());
+        vehicle.setYear(request.year());
+        vehicle.setLicensePlate(request.licensePlate());
+        vehicle.setCurrentMileage(request.currentMileage());
+        vehicle.setStatus(request.status());
+
+        if (request.fleetId() != null &&
+                !request.fleetId().equals(vehicle.getFleet().getId())) {
+
+            Fleet newFleet =
+                    fleetRepository.findByIdAndOwnerId(
+                            request.fleetId(),
+                            ownerUserId
+                    ).orElseThrow(() ->
+                            new ResourceNotFoundException("Fleet not found"));
+
+            vehicle.setFleet(newFleet);
+        }
+
+        return toResponse(vehicle);
+    }
+
+    @Transactional
+    public void deleteVehicle(
+            UUID vehicleId,
+            UUID ownerUserId
+    ) {
+
+        Vehicle vehicle = vehicleRepository.findByIdAndFleetOwnerId(
+                        vehicleId,
+                        ownerUserId
+                )
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        vehicleRepository.delete(vehicle);
+    }
+
+    private VehicleResponse toResponse(Vehicle vehicle) {
+        return new VehicleResponse(
+                vehicle.getId(),
+                vehicle.getFleet().getId(),
+                vehicle.getVin(),
+                vehicle.getMake(),
+                vehicle.getModel(),
+                vehicle.getYear(),
+                vehicle.getLicensePlate(),
+                vehicle.getCurrentMileage(),
+                vehicle.getStatus(),
+                vehicle.getCreatedAt(),
+                vehicle.getUpdatedAt()
+        );
+    }
+}
