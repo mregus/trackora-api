@@ -53,6 +53,8 @@ fleetwise:
   uploads-dir: ${FLEETWISE_UPLOADS_DIR:uploads}
 
 springdoc:
+  swagger:
+    api-key: ${SWAGGER_API_KEY:dev-swagger-key}
   swagger-ui:
     path: /swagger-ui.html
     operations-sorter: method
