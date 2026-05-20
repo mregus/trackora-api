@@ -26,7 +26,7 @@ openai:
   model: gpt-4o-mini
 
 jwt:
-  secret: test-secret-key-must-be-at-least-32-chars
+  JWT_SECRET: trackora-test-jwt-secret-must-be-at-least-32-characters-long-123456
   expiration-minutes: 120
 
   # reduce log noise during test runs
@@ -37,3 +37,17 @@ jwt:
       root: WARN
       org.springframework.test.context: INFO
       com.fleetwise: DEBUG
+
+springdoc:
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:true}
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    display-request-duration: true
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:true}
+    path: /v3/api-docs
+
+swagger:
+  api-key: test-swagger-key

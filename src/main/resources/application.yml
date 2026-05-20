@@ -34,7 +34,7 @@ spring:
       max-request-size: 10MB
 
 jwt:
-  secret: ${JWT_SECRET:dummy-jwt-key}
+  secret: ${JWT_SECRET:trackora-local-jwt-secret-must-be-at-least-32-characters-long-123456}
   expiration-minutes: 120
 
 management:
@@ -53,8 +53,6 @@ fleetwise:
   uploads-dir: ${FLEETWISE_UPLOADS_DIR:uploads}
 
 springdoc:
-  swagger:
-    api-key: ${SWAGGER_API_KEY:dev-swagger-key}
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:false}
     path: /swagger-ui.html
@@ -64,3 +62,6 @@ springdoc:
   api-docs:
     enabled: ${SWAGGER_ENABLED:false}
     path: /v3/api-docs
+
+swagger:
+  api-key: ${SWAGGER_API_KEY:dev-swagger-key}
