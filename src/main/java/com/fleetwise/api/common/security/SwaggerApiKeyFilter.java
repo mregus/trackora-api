@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -12,6 +13,7 @@ import java.io.IOException;
 import java.util.List;
 
 @Component
+@Profile("prod")
 public class SwaggerApiKeyFilter extends OncePerRequestFilter {
 
     private static final String HEADER_NAME = "X-SWAGGER-API-KEY";
@@ -40,6 +42,22 @@ public class SwaggerApiKeyFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
 
         String providedKey = request.getHeader(HEADER_NAME);
+
+        String path = request.getServletPath();
+
+        if (path.startsWith("/swagger-ui")
+                || path.startsWith("/v3/api-docs")
+                || path.equals("/swagger-ui.html")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        String authHeader = request.getHeader("Authorization");
+
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
         if (swaggerApiKey.equals(providedKey)) {
             filterChain.doFilter(request, response);
