@@ -35,7 +35,8 @@ public abstract class BaseIntegrationTest {
                   "firstName":"IT",
                   "lastName":"Tester",
                   "email":"%s",
-                  "password":"%s"
+                  "password":"%s",
+                  "role":"OWNER"
                 }
                 """.formatted(email, password))
                 .when()
@@ -75,7 +76,8 @@ public abstract class BaseIntegrationTest {
               "firstName":"IT",
               "lastName":"Tester",
               "email":"%s",
-              "password":"%s"
+              "password":"%s",
+              "role":"OWNER"
             }
             """.formatted(email, password))
                 .when()

@@ -1,5 +1,7 @@
 package com.fleetwise.api.auth.dto;
 
+import com.fleetwise.api.auth.entity.UserRole;
+
 import java.util.UUID;
 
 public record AuthResponse(
@@ -8,5 +10,5 @@ public record AuthResponse(
         String email,
         String firstName,
         String lastName,
-        String role
+        UserRole role
 ) {}

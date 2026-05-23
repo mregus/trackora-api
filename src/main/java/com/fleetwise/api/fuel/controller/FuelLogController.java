@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import java.util.*;
@@ -17,6 +18,7 @@ import java.util.*;
 public class FuelLogController {
     private final FuelLogService fuelService;
 
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @Operation(summary = "Create new fuel log for vehicle")
     @PostMapping("/api/vehicles/{vehicleId}/fuel-logs")
     public FuelLogResponse create(
@@ -50,6 +52,7 @@ public class FuelLogController {
         return fuelService.get(id, principal.getId());
     }
 
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @Operation(summary = "Update a fuel log")
     @PutMapping("/api/fuel-logs/{id}")
     public FuelLogResponse update(
@@ -59,6 +62,7 @@ public class FuelLogController {
         return fuelService.update(id, principal.getId(), req);
     }
 
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @Operation(summary = "Delete a fuel log")
     @DeleteMapping("/api/fuel-logs/{id}")
     public void delete(

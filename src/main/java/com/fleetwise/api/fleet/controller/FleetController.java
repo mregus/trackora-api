@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,6 +24,7 @@ public class FleetController {
 
     private final FleetService fleetService;
 
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @Operation(summary = "Create a new fleet")
     @PostMapping
     public FleetResponse createFleet(
@@ -49,6 +51,7 @@ public class FleetController {
         return fleetService.getFleet(fleetId, principal.getId());
     }
 
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @Operation(summary = "Update a fleet")
     @PutMapping("/{fleetId}")
     public FleetResponse updateFleet(
@@ -59,6 +62,7 @@ public class FleetController {
         return fleetService.updateFleet(fleetId, principal.getId(), request);
     }
 
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @Operation(summary = "Delete a fleet")
     @DeleteMapping("/{fleetId}")
     public void deleteFleet(

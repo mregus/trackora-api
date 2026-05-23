@@ -29,8 +29,9 @@ public class User {
     @Column(name = "last_name")
     private String lastName;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String role;
+    private UserRole role;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -44,7 +45,7 @@ public class User {
         id = id == null ? UUID.randomUUID() : id;
         createdAt = now;
         updatedAt = now;
-        role = role == null ? "OWNER" : role;
+        role = role == null ? UserRole.OWNER : role;
     }
 
     @PreUpdate

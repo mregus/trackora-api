@@ -7,6 +7,7 @@ import com.fleetwise.api.alert.entity.AlertSeverity;
 import com.fleetwise.api.alert.entity.AlertType;
 import com.fleetwise.api.alert.repository.AlertRepository;
 import com.fleetwise.api.auth.entity.User;
+import com.fleetwise.api.auth.entity.UserRole;
 import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.fleet.entity.Fleet;
 import com.fleetwise.api.fleet.repository.FleetRepository;
@@ -54,7 +55,7 @@ public class DataSeeder implements CommandLineRunner {
                                 .passwordHash(passwordEncoder.encode("Password123!"))
                                 .firstName("Demo")
                                 .lastName("User")
-                                .role("OWNER")
+                                .role(UserRole.OWNER)
                                 .build()
                 ));
 

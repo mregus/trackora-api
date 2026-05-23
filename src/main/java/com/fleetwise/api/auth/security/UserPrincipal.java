@@ -1,21 +1,25 @@
 package com.fleetwise.api.auth.security;
 
 import com.fleetwise.api.auth.entity.User;
+import com.fleetwise.api.auth.entity.UserRole;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Getter
 public class UserPrincipal implements UserDetails {
 
     private final UUID id;
     private final String email;
     private final String password;
-    private final String role;
+    private final UserRole role;
 
     public UserPrincipal(User user) {
         this.id = user.getId();
@@ -26,7 +30,11 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(() -> "ROLE_" + role);
+        String authority = "ROLE_" + role.name();
+
+        log.info("Granted authority: {}", authority);
+
+        return List.of(new SimpleGrantedAuthority(authority));
     }
 
     @Override

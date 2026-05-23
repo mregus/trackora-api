@@ -29,7 +29,7 @@ public class AuthService {
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .firstName(request.firstName())
                 .lastName(request.lastName())
-                .role("OWNER")
+                .role(request.role())
                 .build();
 
         User saved = userRepository.save(user);

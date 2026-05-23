@@ -6,6 +6,7 @@ import com.fleetwise.api.auth.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -18,6 +19,7 @@ public class AiInsightController {
 
     private final AiInsightService aiInsightService;
 
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @Operation(summary = "Generate fleet summary")
     @PostMapping("/api/fleets/{fleetId}/ai/summary")
     public AiInsightResponse generateFleetSummary(
@@ -37,6 +39,7 @@ public class AiInsightController {
         return aiInsightService.listInsights(fleetId, principal.getId());
     }
 
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @PostMapping("/api/vehicles/{vehicleId}/ai/summary")
     public AiInsightResponse generateVehicleSummary(
             @AuthenticationPrincipal UserPrincipal principal,

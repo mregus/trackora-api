@@ -2,6 +2,7 @@ package com.fleetwise.api.auth.security;
 
 import com.fleetwise.api.auth.dto.*;
 import com.fleetwise.api.auth.entity.User;
+import com.fleetwise.api.auth.entity.UserRole;
 import com.fleetwise.api.auth.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,7 +32,7 @@ class AuthServiceTest {
 
     @Test
     void register_NewEmail_ShouldCreateUserAndReturnToken() {
-        RegisterRequest req = new RegisterRequest("john@x.com", "pass", "John", "Doe");
+        RegisterRequest req = new RegisterRequest("john@x.com", "pass", "John", "Doe", UserRole.OWNER);
         when(userRepo.existsByEmailIgnoreCase("john@x.com")).thenReturn(false);
         when(encoder.encode("pass")).thenReturn("hashed");
         when(userRepo.save(any(User.class))).thenAnswer(i -> {
@@ -51,7 +52,7 @@ class AuthServiceTest {
     @Test
     void register_ExistingEmail_ShouldThrowException() {
         when(userRepo.existsByEmailIgnoreCase(any())).thenReturn(true);
-        RegisterRequest req = new RegisterRequest("A","B","dup@x.com","p");
+        RegisterRequest req = new RegisterRequest("A","B","dup@x.com","p", UserRole.VIEWER);
         assertThrows(IllegalArgumentException.class, () -> service.register(req));
     }
 
@@ -69,7 +70,7 @@ class AuthServiceTest {
     void me_ExistingUser_ShouldReturnProfile() {
         UUID id = UUID.randomUUID();
         User user = User.builder()
-                .id(id).email("mail@x.com").firstName("F").lastName("L").role("OWNER").build();
+                .id(id).email("mail@x.com").firstName("F").lastName("L").role(UserRole.MANAGER).build();
         UserPrincipal principal = new UserPrincipal(user);
         when(userRepo.findById(id)).thenReturn(Optional.of(user));
 

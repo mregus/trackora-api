@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import java.util.*;
@@ -18,6 +19,7 @@ public class MaintenanceController {
 
     private final MaintenanceService maintenanceService;
 
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @Operation(summary = "Create a new vehicle maintenance")
     @PostMapping("/api/vehicles/{vehicleId}/maintenance")
     public MaintenanceResponse create(
@@ -46,6 +48,7 @@ public class MaintenanceController {
         return maintenanceService.getRecord(id, principal.getId());
     }
 
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @Operation(summary = "Update a vehicle maintenance")
     @PutMapping("/api/maintenance/{id}")
     public MaintenanceResponse update(
@@ -56,6 +59,7 @@ public class MaintenanceController {
         return maintenanceService.update(id, principal.getId(), request);
     }
 
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @Operation(summary = "Delete a vehicle maintenance")
     @DeleteMapping("/api/maintenance/{id}")
     public void delete(

@@ -22,7 +22,8 @@ class AuthApiIT extends BaseIntegrationTest {
                   "firstName": "Miguel",
                   "lastName": "Test",
                   "email": "%s",
-                  "password": "Password123!"
+                  "password": "Password123!",
+                  "role": "OWNER"
                 }
                 """.formatted(email))
                 .when()
