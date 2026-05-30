@@ -1,5 +1,9 @@
 package com.fleetwise.api.document.service;
 
+import com.fleetwise.api.activity.entity.ActivityAction;
+import com.fleetwise.api.activity.service.ActivityLogService;
+import com.fleetwise.api.auth.entity.User;
+import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
 import com.fleetwise.api.document.dto.VehicleDocumentResponse;
 import com.fleetwise.api.document.entity.VehicleDocument;
@@ -30,6 +34,8 @@ public class VehicleDocumentService {
     private final VehicleRepository vehicleRepository;
     private final VehicleDocumentRepository documentRepository;
     private final MaintenanceRepository maintenanceRepository;
+    private final ActivityLogService activityLogService;
+    private final UserRepository userRepository;
 
     @Value("${fleetwise.uploads-dir:uploads}")
     private String uploadsDir;
@@ -92,7 +98,11 @@ public class VehicleDocumentService {
             validateImageFile(file);
         }
 
+        User user = userRepository.findById(ownerId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
         return saveDocument(
+                user,
                 vehicle,
                 null,
                 file,
@@ -138,7 +148,11 @@ public class VehicleDocumentService {
             validateImageFile(file);
         }
 
+        User user = userRepository.findById(ownerId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
         return saveDocument(
+                user,
                 vehicle,
                 maintenance,
                 file,
@@ -202,6 +216,18 @@ public class VehicleDocumentService {
         } catch (Exception ignored) {
         }
 
+        User user = userRepository.findById(ownerId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        activityLogService.log(
+                user,
+                document.getVehicle(),
+                ActivityAction.DOCUMENT_DELETED,
+                "DOCUMENT",
+                document.getId(),
+                "Deleted document %s".formatted(document.getOriginalFileName())
+        );
+
         documentRepository.delete(document);
     }
 
@@ -244,6 +270,7 @@ public class VehicleDocumentService {
     }
 
     private VehicleDocumentResponse saveDocument(
+            User user,
             Vehicle vehicle,
             Maintenance maintenance,
             MultipartFile file,
@@ -277,6 +304,15 @@ public class VehicleDocumentService {
                     .build();
 
             VehicleDocument saved = documentRepository.save(document);
+
+            activityLogService.log(
+                    user,
+                    vehicle,
+                    ActivityAction.DOCUMENT_UPLOADED,
+                    "DOCUMENT",
+                    saved.getId(),
+                    "Uploaded document %s".formatted(saved.getOriginalFileName())
+            );
 
             return toResponse(saved);
 

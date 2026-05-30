@@ -1,5 +1,9 @@
 package com.fleetwise.api.fuel.service;
 
+import com.fleetwise.api.activity.entity.ActivityAction;
+import com.fleetwise.api.activity.service.ActivityLogService;
+import com.fleetwise.api.auth.entity.User;
+import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
 import com.fleetwise.api.fuel.dto.*;
 import com.fleetwise.api.fuel.entity.FuelLog;
@@ -17,6 +21,8 @@ public class FuelLogService {
 
     private final FuelLogRepository fuelRepository;
     private final VehicleRepository vehicleRepository;
+    private final ActivityLogService activityLogService;
+    private final UserRepository userRepository;
 
     @Transactional
     public FuelLogResponse create(UUID vehicleId, UUID ownerId, CreateFuelLogRequest req) {
@@ -36,6 +42,21 @@ public class FuelLogService {
                 .pricePerGallon(ppg)
                 .notes(req.notes())
                 .build();
+
+        User user = userRepository.findById(ownerId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        activityLogService.log(
+                user,
+                vehicle,
+                ActivityAction.FUEL_LOG_CREATED,
+                "FUEL_LOG",
+                log.getId(),
+                "Added fuel log for %s %s".formatted(
+                        vehicle.getMake(),
+                        vehicle.getModel()
+                )
+        );
 
         return toResponse(fuelRepository.save(log));
     }

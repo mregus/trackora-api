@@ -1,5 +1,7 @@
 package com.fleetwise.api.fleet.service;
 
+import com.fleetwise.api.activity.entity.ActivityAction;
+import com.fleetwise.api.activity.service.ActivityLogService;
 import com.fleetwise.api.auth.entity.User;
 import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
@@ -21,6 +23,7 @@ public class FleetService {
 
     private final FleetRepository fleetRepository;
     private final UserRepository userRepository;
+    private final ActivityLogService activityLogService;
 
     @Transactional
     public FleetResponse createFleet(UUID ownerUserId, CreateFleetRequest request) {
@@ -33,6 +36,18 @@ public class FleetService {
                 .build();
 
         Fleet saved = fleetRepository.save(fleet);
+
+        User user = userRepository.findById(ownerUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        activityLogService.log(
+                user,
+                null,
+                ActivityAction.FLEET_CREATED,
+                "FLEET",
+                saved.getId(),
+                "Created fleet %s".formatted(saved.getName())
+        );
 
         return toResponse(saved);
     }

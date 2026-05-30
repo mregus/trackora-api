@@ -1,11 +1,15 @@
 package com.fleetwise.api.ai.service;
 
+import com.fleetwise.api.activity.entity.ActivityAction;
+import com.fleetwise.api.activity.service.ActivityLogService;
 import com.fleetwise.api.ai.dto.AiInsightResponse;
 import com.fleetwise.api.ai.dto.GenerateAiSummaryRequest;
 import com.fleetwise.api.ai.entity.AiInsight;
 import com.fleetwise.api.ai.openai.AiPromptType;
 import com.fleetwise.api.ai.openai.OpenAiClient;
 import com.fleetwise.api.ai.repository.AiInsightRepository;
+import com.fleetwise.api.auth.entity.User;
+import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ExternalServiceException;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
 import com.fleetwise.api.fleet.repository.FleetRepository;
@@ -31,6 +35,8 @@ public class AiInsightService {
     private final FleetRepository fleetRepository;
     private final AiInsightRepository aiRepository;
     private final OpenAiClient openAiClient;
+    private final ActivityLogService activityLogService;
+    private final UserRepository userRepository;
 
     @Transactional
     public AiInsightResponse generateFleetSummary(
@@ -91,6 +97,19 @@ public class AiInsightService {
                 .build();
 
         AiInsight saved = aiRepository.save(insight);
+
+        User user = userRepository.findById(ownerId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        activityLogService.log(
+                user,
+                fleet,
+                null,
+                ActivityAction.AI_SUMMARY_GENERATED,
+                "AI_INSIGHT",
+                saved.getId(),
+                "Generated fleet AI summary"
+        );
 
         return toResponse(saved);
     }
@@ -180,6 +199,21 @@ public class AiInsightService {
                 .build();
 
         AiInsight saved = aiRepository.save(insight);
+
+        User user = userRepository.findById(ownerId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        activityLogService.log(
+                user,
+                vehicle,
+                ActivityAction.AI_SUMMARY_GENERATED,
+                "AI_INSIGHT",
+                saved.getId(),
+                "Generated AI summary for %s %s".formatted(
+                        vehicle.getMake(),
+                        vehicle.getModel()
+                )
+        );
 
         return toResponse(saved);
     }

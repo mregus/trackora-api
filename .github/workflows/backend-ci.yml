@@ -1,0 +1,33 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      - name: Run tests
+        run: ./gradlew clean test
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          OPENAI_ENABLED: false
+          OPENAI_API_KEY: dummy-key
+          SWAGGER_ENABLED: true
+          SWAGGER_API_KEY: ci-swagger-key

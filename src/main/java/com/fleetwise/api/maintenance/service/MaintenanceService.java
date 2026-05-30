@@ -1,9 +1,13 @@
 package com.fleetwise.api.maintenance.service;
 
+import com.fleetwise.api.activity.entity.ActivityAction;
+import com.fleetwise.api.activity.service.ActivityLogService;
 import com.fleetwise.api.alert.entity.Alert;
 import com.fleetwise.api.alert.entity.AlertSeverity;
 import com.fleetwise.api.alert.entity.AlertType;
 import com.fleetwise.api.alert.repository.AlertRepository;
+import com.fleetwise.api.auth.entity.User;
+import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
 import com.fleetwise.api.vehicle.repository.VehicleRepository;
 import com.fleetwise.api.maintenance.dto.*;
@@ -24,6 +28,8 @@ public class MaintenanceService {
     private final MaintenanceRepository maintenanceRepository;
     private final VehicleRepository vehicleRepository;
     private final AlertRepository alertRepository;
+    private final ActivityLogService activityLogService;
+    private final UserRepository userRepository;
 
     @Transactional
     public MaintenanceResponse create(UUID vehicleId, UUID ownerId, CreateMaintenanceRequest request) {
@@ -42,7 +48,25 @@ public class MaintenanceService {
                 .status(MaintenanceStatus.SCHEDULED)
                 .build();
 
-        return toResponse(maintenanceRepository.save(record));
+        Maintenance saved = maintenanceRepository.save(record);
+
+        User user = userRepository.findById(ownerId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        activityLogService.log(
+                user,
+                vehicle,
+                ActivityAction.MAINTENANCE_CREATED,
+                "MAINTENANCE",
+                saved.getId(),
+                "Scheduled maintenance %s for %s %s".formatted(
+                        saved.getServiceType(),
+                        vehicle.getMake(),
+                        vehicle.getModel()
+                )
+        );
+
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -74,6 +98,30 @@ public class MaintenanceService {
         rec.setVendor(req.vendor());
         rec.setNextServiceDate(req.nextServiceDate());
         rec.setStatus(req.status());
+
+        MaintenanceStatus oldStatus = rec.getStatus();
+
+        rec.setStatus(req.status());
+
+        if (oldStatus != MaintenanceStatus.COMPLETED
+                && req.status() == MaintenanceStatus.COMPLETED) {
+
+            User user = userRepository.findById(ownerId)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+            activityLogService.log(
+                    user,
+                    rec.getVehicle(),
+                    ActivityAction.MAINTENANCE_COMPLETED,
+                    "MAINTENANCE",
+                    rec.getId(),
+                    "Completed maintenance %s for %s %s".formatted(
+                            rec.getServiceType(),
+                            rec.getVehicle().getMake(),
+                            rec.getVehicle().getModel()
+                    )
+            );
+        }
 
         return toResponse(rec);
     }
