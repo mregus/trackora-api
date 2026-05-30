@@ -1,6 +1,8 @@
 package com.fleetwise.api.document.storage;
 
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -15,6 +17,8 @@ import java.io.InputStream;
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "storage.provider", havingValue = "s3")
 public class S3DocumentStorageService implements DocumentStorageService {
+
+    private final static Logger logger = LoggerFactory.getLogger(S3DocumentStorageService.class);
 
     private final S3Client s3Client;
 
@@ -36,9 +40,12 @@ public class S3DocumentStorageService implements DocumentStorageService {
                     RequestBody.fromInputStream(file.getInputStream(), file.getSize())
             );
 
+            logger.info("Uploading document to S3 bucket={}, key={}", bucket, objectKey);
+
             return objectKey;
 
         } catch (Exception e) {
+            logger.error(e.getMessage(), e);
             throw new RuntimeException("Failed to upload document to S3", e);
         }
     }
