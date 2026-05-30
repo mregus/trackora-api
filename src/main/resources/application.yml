@@ -55,6 +55,14 @@ fleetwise:
 internal:
   api-key: ${INTERNAL_API_KEY:dev-internal-key}
 
+storage:
+  provider: ${STORAGE_PROVIDER:local}
+
+aws:
+  s3:
+    bucket: ${AWS_S3_BUCKET:}
+    region: ${AWS_REGION:us-east-1}
+
 springdoc:
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:false}

@@ -53,6 +53,9 @@ dependencies {
     // Test containers
     testImplementation 'org.testcontainers:postgresql:1.19.7'
     testImplementation 'org.testcontainers:junit-jupiter:1.19.7'
+    // AWS S3
+    implementation platform('software.amazon.awssdk:bom:2.25.60')
+    implementation 'software.amazon.awssdk:s3'
 }
 
 tasks.named('test') {

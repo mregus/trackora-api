@@ -9,6 +9,7 @@ import com.fleetwise.api.document.dto.VehicleDocumentResponse;
 import com.fleetwise.api.document.entity.VehicleDocument;
 import com.fleetwise.api.document.entity.VehicleDocumentType;
 import com.fleetwise.api.document.repository.VehicleDocumentRepository;
+import com.fleetwise.api.document.storage.DocumentStorageService;
 import com.fleetwise.api.maintenance.entity.Maintenance;
 import com.fleetwise.api.maintenance.repository.MaintenanceRepository;
 import com.fleetwise.api.vehicle.entity.Vehicle;
@@ -16,6 +17,7 @@ import com.fleetwise.api.vehicle.repository.VehicleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +38,7 @@ public class VehicleDocumentService {
     private final MaintenanceRepository maintenanceRepository;
     private final ActivityLogService activityLogService;
     private final UserRepository userRepository;
+    private final DocumentStorageService  documentStorageService;
 
     @Value("${fleetwise.uploads-dir:uploads}")
     private String uploadsDir;
@@ -204,7 +207,9 @@ public class VehicleDocumentService {
     public Resource download(UUID documentId, UUID ownerId) {
         VehicleDocument document = getDocument(documentId, ownerId);
 
-        return new FileSystemResource(document.getStoragePath());
+        return new InputStreamResource(
+                documentStorageService.download(document.getStoragePath())
+        );
     }
 
     @Transactional
@@ -212,7 +217,7 @@ public class VehicleDocumentService {
         VehicleDocument document = getDocument(documentId, ownerId);
 
         try {
-            Files.deleteIfExists(Path.of(document.getStoragePath()));
+            documentStorageService.delete(document.getStoragePath());
         } catch (Exception ignored) {
         }
 
@@ -285,21 +290,29 @@ public class VehicleDocumentService {
                 originalFileName = originalFileName.substring(originalFileName.length() - 200);
             }
 
-            String storedFileName = UUID.randomUUID() + "_" + originalFileName;
+//            String storedFileName = UUID.randomUUID() + "_" + originalFileName;
 
-            Path storagePath =
-                    Path.of(uploadsDir, storedFileName);
+//            Path storagePath =
+//                    Path.of(uploadsDir, storedFileName);
 
-            Files.copy(file.getInputStream(), storagePath);
+//            Files.copy(file.getInputStream(), storagePath);
+
+            String objectKey = buildObjectKey(
+                    vehicle,
+                    maintenance,
+                    originalFileName
+            );
+
+            String storagePath = documentStorageService.upload(file, objectKey);
 
             VehicleDocument document = VehicleDocument.builder()
                     .vehicle(vehicle)
                     .maintenance(maintenance)
                     .originalFileName(originalFileName)
-                    .storedFileName(storedFileName)
+                    .storedFileName(objectKey)
                     .contentType(file.getContentType())
                     .fileSize(file.getSize())
-                    .storagePath(storagePath.toString())
+                    .storagePath(storagePath)
                     .documentType(documentType)
                     .build();
 
@@ -319,6 +332,22 @@ public class VehicleDocumentService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to upload document", e);
         }
+    }
+
+    private String buildObjectKey(
+            Vehicle vehicle,
+            Maintenance maintenance,
+            String originalFileName
+    ) {
+        String prefix = maintenance != null
+                ? "maintenance/%s".formatted(maintenance.getId())
+                : "vehicles/%s".formatted(vehicle.getId());
+
+        return "%s/%s-%s".formatted(
+                prefix,
+                UUID.randomUUID(),
+                originalFileName
+        );
     }
 
     private void validateAllowedFileType(MultipartFile file) {

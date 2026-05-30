@@ -64,4 +64,25 @@ public interface MaintenanceRepository extends JpaRepository<Maintenance, UUID> 
     List<FuelLog> findFuelLogsAboveThreshold(
             @Param("threshold") BigDecimal threshold
     );
+
+    @Query("""
+    select m
+    from Maintenance m
+    join fetch m.vehicle v
+    join fetch v.fleet f
+    where f.owner.id = :ownerId
+      and (
+        lower(cast(m.serviceType as string)) like lower(concat('%', :query, '%'))
+        or lower(coalesce(m.description, '')) like lower(concat('%', :query, '%'))
+        or lower(coalesce(m.vendor, '')) like lower(concat('%', :query, '%'))
+        or lower(v.make) like lower(concat('%', :query, '%'))
+        or lower(v.model) like lower(concat('%', :query, '%'))
+        or lower(coalesce(v.licensePlate, '')) like lower(concat('%', :query, '%'))
+      )
+    order by m.serviceDate desc
+    """)
+    List<Maintenance> searchMaintenance(
+            @Param("ownerId") UUID ownerId,
+            @Param("query") String query
+    );
 }
