@@ -1,5 +1,6 @@
 package com.fleetwise.api.fleet;
 
+import com.fleetwise.api.activity.service.ActivityLogService;
 import com.fleetwise.api.auth.entity.User;
 import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
@@ -17,7 +18,8 @@ class FleetServiceTest {
 
     private final FleetRepository fleetRepo = mock(FleetRepository.class);
     private final UserRepository userRepo = mock(UserRepository.class);
-    private final FleetService service = new FleetService(fleetRepo, userRepo);
+    private final ActivityLogService activityLogService = mock(ActivityLogService.class);
+    private final FleetService service = new FleetService(fleetRepo, userRepo, activityLogService);
 
     @Test
     void createFleet_ShouldSaveFleet() {

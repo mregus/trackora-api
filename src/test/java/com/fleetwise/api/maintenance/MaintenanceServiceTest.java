@@ -1,6 +1,9 @@
 package com.fleetwise.api.maintenance;
 
+import com.fleetwise.api.activity.service.ActivityLogService;
 import com.fleetwise.api.alert.repository.AlertRepository;
+import com.fleetwise.api.auth.entity.User;
+import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
 import com.fleetwise.api.maintenance.dto.CreateMaintenanceRequest;
 import com.fleetwise.api.maintenance.dto.UpdateMaintenanceRequest;
@@ -23,7 +26,9 @@ class MaintenanceServiceTest {
     private final MaintenanceRepository repo = mock(MaintenanceRepository.class);
     private final VehicleRepository vehicleRepo = mock(VehicleRepository.class);
     private final AlertRepository alertRepo = mock(AlertRepository.class);
-    private final MaintenanceService service = new MaintenanceService(repo, vehicleRepo, alertRepo);
+    private final UserRepository userRepo = mock(UserRepository.class);
+    private final ActivityLogService activityLogService = mock(ActivityLogService.class);
+    private final MaintenanceService service = new MaintenanceService(repo, vehicleRepo, alertRepo, activityLogService, userRepo);
 
     @Test
     void create_ShouldPersistAndReturnResponse() {
@@ -31,6 +36,7 @@ class MaintenanceServiceTest {
         when(vehicleRepo.findByIdAndFleetOwnerId(vId, uId))
                 .thenReturn(Optional.of(new Vehicle()));
         when(repo.save(any(Maintenance.class))).thenAnswer(i -> i.getArgument(0));
+        when(userRepo.findById(uId)).thenReturn(Optional.of(new User()));
 
         var req = new CreateMaintenanceRequest(
                 "Oil Change", "Full synthetic", LocalDate.now(), 123000,

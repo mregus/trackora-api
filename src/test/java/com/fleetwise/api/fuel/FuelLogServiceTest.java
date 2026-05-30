@@ -1,5 +1,8 @@
 package com.fleetwise.api.fuel;
 
+import com.fleetwise.api.activity.service.ActivityLogService;
+import com.fleetwise.api.auth.entity.User;
+import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
 import com.fleetwise.api.fuel.dto.CreateFuelLogRequest;
 import com.fleetwise.api.fuel.dto.UpdateFuelLogRequest;
@@ -21,7 +24,9 @@ class FuelLogServiceTest {
 
     private final FuelLogRepository repo = mock(FuelLogRepository.class);
     private final VehicleRepository vehicleRepo = mock(VehicleRepository.class);
-    private final FuelLogService service = new FuelLogService(repo, vehicleRepo);
+    private final UserRepository userRepo = mock(UserRepository.class);
+    private final ActivityLogService activityLogService = mock(ActivityLogService.class);
+    private final FuelLogService service = new FuelLogService(repo, vehicleRepo, activityLogService, userRepo);
 
     @Test
     void create_ShouldSaveFuelLog() {
@@ -29,6 +34,7 @@ class FuelLogServiceTest {
         when(vehicleRepo.findByIdAndFleetOwnerId(vId, owner))
                 .thenReturn(Optional.of(new Vehicle()));
         when(repo.save(any(FuelLog.class))).thenAnswer(i -> i.getArgument(0));
+        when(userRepo.findById(owner)).thenReturn(Optional.of(new User()));
 
         var req = new CreateFuelLogRequest(LocalDate.now(), 1000,
                 new BigDecimal("10"), new BigDecimal("35.0"), "note");
