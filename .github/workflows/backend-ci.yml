@@ -10,6 +10,21 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: fleetwise
+          POSTGRES_USER: fleetwise
+          POSTGRES_PASSWORD: fleetwise
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U fleetwise -d fleetwise"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,7 +41,10 @@ jobs:
       - name: Run tests
         run: ./gradlew clean test
         env:
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/fleetwise
+          SPRING_DATASOURCE_USERNAME: fleetwise
+          SPRING_DATASOURCE_PASSWORD: fleetwise
+          JWT_SECRET: ${{secrets.JWT_SECRET}}
           OPENAI_ENABLED: false
           OPENAI_API_KEY: dummy-key
           SWAGGER_ENABLED: true
