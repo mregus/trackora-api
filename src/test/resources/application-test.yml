@@ -1,9 +1,9 @@
 spring:
   datasource:
-    url: jdbc:tc:postgresql:16-alpine:///fleetwise_test  # Testcontainers JDBC URL
-    username: fleetwise
-    password: fleetwise
-    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/fleetwise}
+    username: ${SPRING_DATASOURCE_USERNAME:fleetwise}
+    password: ${SPRING_DATASOURCE_PASSWORD:fleetwise}
+    driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
@@ -26,7 +26,7 @@ openai:
   model: gpt-4o-mini
 
 jwt:
-  JWT_SECRET: trackora-test-jwt-secret-must-be-at-least-32-characters-long-123456
+  secret: ${JWT_SECRET:trackora-test-jwt-secret-must-be-at-least-32-characters-long-123456}
   expiration-minutes: 120
 
   # reduce log noise during test runs
