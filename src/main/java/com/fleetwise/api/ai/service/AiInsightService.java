@@ -13,6 +13,8 @@ import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ExternalServiceException;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
 import com.fleetwise.api.fleet.repository.FleetRepository;
+import com.fleetwise.api.notification.entity.NotificationType;
+import com.fleetwise.api.notification.service.NotificationService;
 import com.fleetwise.api.vehicle.entity.Vehicle;
 import com.fleetwise.api.vehicle.repository.VehicleRepository;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +39,7 @@ public class AiInsightService {
     private final OpenAiClient openAiClient;
     private final ActivityLogService activityLogService;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Transactional
     public AiInsightResponse generateFleetSummary(
@@ -109,6 +112,13 @@ public class AiInsightService {
                 "AI_INSIGHT",
                 saved.getId(),
                 "Generated fleet AI summary"
+        );
+
+        notificationService.create(
+                ownerId,
+                "AI summary generated",
+                "A new fleet AI summary is ready.",
+                NotificationType.AI_SUMMARY
         );
 
         return toResponse(saved);
@@ -213,6 +223,16 @@ public class AiInsightService {
                         vehicle.getMake(),
                         vehicle.getModel()
                 )
+        );
+
+        notificationService.create(
+                ownerId,
+                "Vehicle AI summary generated",
+                "A new AI summary is ready for %s %s.".formatted(
+                        vehicle.getMake(),
+                        vehicle.getModel()
+                ),
+                NotificationType.AI_VEHICLE_SUMMARY
         );
 
         return toResponse(saved);

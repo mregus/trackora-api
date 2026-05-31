@@ -15,3 +15,9 @@ jobs:
           curl -X POST \
             https://trackora-api-cxjn.onrender.com/api/internal/alerts/generate \
             -H "X-INTERNAL-API-KEY: ${{ secrets.INTERNAL_API_KEY }}"
+
+      - name: Send daily digest
+        run: |
+          curl -X POST \
+            https://trackora-api-cxjn.onrender.com/api/internal/notifications/daily-digest \
+            -H "X-INTERNAL-API-KEY: ${{ secrets.INTERNAL_API_KEY }}"

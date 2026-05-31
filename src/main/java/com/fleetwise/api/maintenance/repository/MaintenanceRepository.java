@@ -13,6 +13,7 @@ import java.util.*;
 public interface MaintenanceRepository extends JpaRepository<Maintenance, UUID> {
     List<Maintenance> findByVehicleIdOrderByServiceDateDesc(UUID vehicleId);
     Optional<Maintenance> findByIdAndVehicleFleetOwnerId(UUID id, UUID ownerUserId);
+    List<Maintenance> findByVehicleFleetId(UUID fleetId);
     @Query("""
     select coalesce(sum(m.cost), 0)
     from Maintenance m

@@ -5,6 +5,8 @@ import com.fleetwise.api.alert.entity.AlertSeverity;
 import com.fleetwise.api.alert.repository.AlertRepository;
 import com.fleetwise.api.maintenance.entity.Maintenance;
 import com.fleetwise.api.maintenance.repository.MaintenanceRepository;
+import com.fleetwise.api.notification.entity.NotificationType;
+import com.fleetwise.api.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,6 +26,7 @@ public class MaintenanceAlertService {
 
     private final MaintenanceRepository maintenanceRepository;
     private final AlertRepository alertRepository;
+    private final NotificationService notificationService;
 
     @Scheduled(cron = "0 0 6 * * *")
     @Transactional
@@ -78,6 +81,17 @@ public class MaintenanceAlertService {
                     .build();
 
             alertRepository.save(alert);
+
+            notificationService.create(
+                    vehicle.getFleet().getOwner().getId(),
+                    "Maintenance overdue",
+                    "Maintenance is overdue for %s %s.".formatted(
+                            vehicle.getMake(),
+                            vehicle.getModel()
+                    ),
+                    NotificationType.MAINTENANCE_OVERDUE
+            );
+
             created++;
         }
 
@@ -123,6 +137,17 @@ public class MaintenanceAlertService {
                     .build();
 
             alertRepository.save(alert);
+
+            notificationService.create(
+                    vehicle.getFleet().getOwner().getId(),
+                    "Maintenance due soon",
+                    "Scheduled maintenance is due soon for %s %s.".formatted(
+                            vehicle.getMake(),
+                            vehicle.getModel()
+                    ),
+                    NotificationType.MAINTENANCE_DUE
+            );
+
             created++;
         }
 

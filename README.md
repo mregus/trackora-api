@@ -116,6 +116,16 @@ Supports:
 - File validation
 - Tenant isolation
 
+Documents stored on AWS S3 bucket:
+
+```text
+STORAGE_PROVIDER=s3
+AWS_S3_BUCKET=trackora-documents
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
 ---
 
 ## Alerts

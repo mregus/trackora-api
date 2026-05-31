@@ -6,6 +6,8 @@ import com.fleetwise.api.alert.entity.AlertType;
 import com.fleetwise.api.alert.repository.AlertRepository;
 import com.fleetwise.api.fuel.entity.FuelLog;
 import com.fleetwise.api.fuel.repository.FuelLogRepository;
+import com.fleetwise.api.notification.entity.NotificationType;
+import com.fleetwise.api.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,6 +28,7 @@ public class FuelAlertService {
 
     private final FuelLogRepository fuelLogRepository;
     private final AlertRepository alertRepository;
+    private final NotificationService notificationService;
 
     @Scheduled(cron = "0 15 6 * * *")
     @Transactional
@@ -98,6 +101,17 @@ public class FuelAlertService {
                     .build();
 
             alertRepository.save(alert);
+
+            notificationService.create(
+                    vehicle.getFleet().getOwner().getId(),
+                    "Fuel anomaly detected",
+                    "Fuel anomaly detected for %s %s.".formatted(
+                            vehicle.getMake(),
+                            vehicle.getModel()
+                    ),
+                    NotificationType.CRITICAL_ALERT
+            );
+
             created++;
         }
 

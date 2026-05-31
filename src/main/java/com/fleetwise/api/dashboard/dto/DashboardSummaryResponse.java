@@ -15,5 +15,7 @@ public record DashboardSummaryResponse(
         long openAlerts,
         BigDecimal monthlyMaintenanceCost,
         BigDecimal monthlyFuelCost,
-        String latestAiInsight
+        String latestAiInsight,
+        Integer fleetHealthScore,
+        FleetHealthBreakdown fleetHealthBreakdown
 ) {}

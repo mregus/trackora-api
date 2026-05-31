@@ -3,10 +3,13 @@ package com.fleetwise.api.auth.security;
 import com.fleetwise.api.auth.dto.*;
 import com.fleetwise.api.auth.entity.User;
 import com.fleetwise.api.auth.entity.UserRole;
+import com.fleetwise.api.auth.repository.PasswordResetTokenRepository;
 import com.fleetwise.api.auth.repository.UserRepository;
+import com.fleetwise.api.notification.email.EmailService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.*;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -23,11 +26,16 @@ class AuthServiceTest {
     private final PasswordEncoder encoder = mock(PasswordEncoder.class);
     private final JwtService jwtService = mock(JwtService.class);
     private final AuthenticationManager authManager = mock(AuthenticationManager.class);
+    private final PasswordResetTokenRepository passwordResetTokenRepository = mock(PasswordResetTokenRepository.class);
+    private final EmailService emailService = mock(EmailService.class);
+
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
     private AuthService service;
 
     @BeforeEach
     void setup() {
-        service = new AuthService(userRepo, encoder, jwtService, authManager);
+        service = new AuthService(userRepo, encoder, jwtService, authManager, passwordResetTokenRepository, emailService);
     }
 
     @Test

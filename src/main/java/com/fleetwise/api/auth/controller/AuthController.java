@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @Tag(name = "Auth", description = "Authentication and current user APIs")
 @RestController
 @RequestMapping("/api/auth")
@@ -38,5 +40,26 @@ public class AuthController {
     @GetMapping("/me")
     public MeResponse me(@AuthenticationPrincipal UserPrincipal principal) {
         return authService.me(principal);
+    }
+
+    @PostMapping("/forgot-password")
+    public Map<String, String> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest request
+    ) {
+        authService.forgotPassword(request);
+
+        return Map.of(
+                "message",
+                "If the account exists, a reset link has been sent."
+        );
+    }
+
+    @PostMapping("/reset-password")
+    public Map<String, String> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request
+    ) {
+        authService.resetPassword(request);
+
+        return Map.of("message", "Password has been reset successfully.");
     }
 }

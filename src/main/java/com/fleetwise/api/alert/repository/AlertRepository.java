@@ -39,5 +39,7 @@ public interface AlertRepository extends JpaRepository<Alert, UUID> {
             @Param("query") String query
     );
 
+    List<Alert> findByFleetId(UUID fleetId);
+
 //    boolean existsByVehicleIdAndTypeAndResolvedFalse(UUID vehicleId, String type);
 }
