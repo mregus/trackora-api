@@ -10,6 +10,7 @@ import com.fleetwise.api.document.entity.VehicleDocument;
 import com.fleetwise.api.document.entity.VehicleDocumentType;
 import com.fleetwise.api.document.repository.VehicleDocumentRepository;
 import com.fleetwise.api.document.storage.DocumentStorageService;
+import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.maintenance.entity.Maintenance;
 import com.fleetwise.api.maintenance.repository.MaintenanceRepository;
 import com.fleetwise.api.vehicle.entity.Vehicle;
@@ -39,6 +40,7 @@ public class VehicleDocumentService {
     private final ActivityLogService activityLogService;
     private final UserRepository userRepository;
     private final DocumentStorageService  documentStorageService;
+    private final FleetAccessService fleetAccessService;
 
     @Value("${fleetwise.uploads-dir:uploads}")
     private String uploadsDir;
@@ -77,6 +79,8 @@ public class VehicleDocumentService {
     ) {
         Vehicle vehicle = vehicleRepository.findByIdAndFleetOwnerId(vehicleId, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateWriteAccess(vehicle.getFleet().getId(), ownerId);
 
         if (file.isEmpty()) {
             throw new IllegalArgumentException("File is required");
@@ -128,6 +132,8 @@ public class VehicleDocumentService {
 
         Vehicle vehicle = maintenance.getVehicle();
 
+        fleetAccessService.validateWriteAccess(vehicle.getFleet().getId(), ownerId);
+
         if (!vehicle.getFleet().getOwner().getId().equals(ownerId)) {
             throw new ResourceNotFoundException("Maintenance not found");
         }
@@ -166,8 +172,10 @@ public class VehicleDocumentService {
     @Transactional(readOnly = true)
     public List<VehicleDocumentResponse> list(UUID vehicleId, UUID ownerId) {
 
-        vehicleRepository.findByIdAndFleetOwnerId(vehicleId, ownerId)
+        var vehicle = vehicleRepository.findByIdAndFleetOwnerId(vehicleId, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateAccess(vehicle.getFleet().getId(), ownerId);
 
         return documentRepository.findByVehicleIdAndMaintenanceIsNullOrderByCreatedAtDesc(vehicleId)
                 .stream()
@@ -189,6 +197,8 @@ public class VehicleDocumentService {
         if (!maintenance.getVehicle().getFleet().getOwner().getId().equals(ownerId)) {
             throw new ResourceNotFoundException("Maintenance not found");
         }
+
+        fleetAccessService.validateAccess(maintenance.getVehicle().getFleet().getId(), ownerId);
 
         return documentRepository
                 .findByMaintenanceIdOrderByCreatedAtDesc(maintenanceId)
@@ -289,13 +299,6 @@ public class VehicleDocumentService {
             if (originalFileName.length() > 200) {
                 originalFileName = originalFileName.substring(originalFileName.length() - 200);
             }
-
-//            String storedFileName = UUID.randomUUID() + "_" + originalFileName;
-
-//            Path storagePath =
-//                    Path.of(uploadsDir, storedFileName);
-
-//            Files.copy(file.getInputStream(), storagePath);
 
             String objectKey = buildObjectKey(
                     vehicle,

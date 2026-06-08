@@ -5,9 +5,8 @@ import com.fleetwise.api.activity.entity.ActivityAction;
 import com.fleetwise.api.activity.entity.ActivityLog;
 import com.fleetwise.api.activity.repository.ActivityLogRepository;
 import com.fleetwise.api.auth.entity.User;
-import com.fleetwise.api.common.exception.ResourceNotFoundException;
 import com.fleetwise.api.fleet.entity.Fleet;
-import com.fleetwise.api.fleet.repository.FleetRepository;
+import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.vehicle.entity.Vehicle;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,7 +20,7 @@ import java.util.UUID;
 public class ActivityLogService {
 
     private final ActivityLogRepository activityLogRepository;
-    private final FleetRepository fleetRepository;
+    private final FleetAccessService fleetAccessService;
 
     @Transactional
     public void log(
@@ -33,6 +32,9 @@ public class ActivityLogService {
             UUID entityId,
             String message
     ) {
+
+        fleetAccessService.validateWriteAccess(fleet.getId(), user.getId());
+
         ActivityLog log = ActivityLog.builder()
                 .fleet(fleet)
                 .vehicle(vehicle)
@@ -67,8 +69,8 @@ public class ActivityLogService {
 
     @Transactional(readOnly = true)
     public List<ActivityLogResponse> getFleetActivity(UUID fleetId, UUID ownerId) {
-        fleetRepository.findByIdAndOwnerId(fleetId, ownerId)
-                .orElseThrow(() -> new ResourceNotFoundException("Fleet not found"));
+
+        fleetAccessService.validateAccess(fleetId, ownerId);
 
         return activityLogRepository.findTop50ByFleetIdOrderByCreatedAtDesc(fleetId)
                 .stream()

@@ -5,9 +5,11 @@ import com.fleetwise.api.activity.service.ActivityLogService;
 import com.fleetwise.api.auth.entity.User;
 import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
+import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.fuel.dto.*;
 import com.fleetwise.api.fuel.entity.FuelLog;
 import com.fleetwise.api.fuel.repository.FuelLogRepository;
+import com.fleetwise.api.vehicle.entity.Vehicle;
 import com.fleetwise.api.vehicle.repository.VehicleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -23,11 +25,15 @@ public class FuelLogService {
     private final VehicleRepository vehicleRepository;
     private final ActivityLogService activityLogService;
     private final UserRepository userRepository;
+    private final FleetAccessService fleetAccessService;
 
     @Transactional
     public FuelLogResponse create(UUID vehicleId, UUID ownerId, CreateFuelLogRequest req) {
+
         var vehicle = vehicleRepository.findByIdAndFleetOwnerId(vehicleId, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateWriteAccess(vehicle.getFleet().getId(), ownerId);
 
         BigDecimal ppg = req.gallons().compareTo(BigDecimal.ZERO) > 0
                 ? req.totalCost().divide(req.gallons(), 3, java.math.RoundingMode.HALF_UP)
@@ -63,15 +69,26 @@ public class FuelLogService {
 
     @Transactional(readOnly = true)
     public List<FuelLogResponse> getVehicleLogs(UUID vehicleId, UUID ownerId) {
+
+        Vehicle vehicle = vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateAccess(vehicle.getFleet().getId(), ownerId);
+
         vehicleRepository.findByIdAndFleetOwnerId(vehicleId, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
         return fuelRepository.findByVehicleIdOrderByFuelDateDesc(vehicleId)
                 .stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
     public List<FuelLogResponse> getFleetLogs(UUID fleetId, UUID ownerId) {
+
         var logs = fuelRepository.findByVehicleFleetOwnerId(ownerId);
+
+        fleetAccessService.validateAccess(fleetId, ownerId);
+
         return logs.stream().filter(f ->
                 f.getVehicle().getFleet().getId().equals(fleetId)
         ).map(this::toResponse).toList();
@@ -79,15 +96,23 @@ public class FuelLogService {
 
     @Transactional(readOnly = true)
     public FuelLogResponse get(UUID id, UUID ownerId) {
+
         var log = fuelRepository.findByIdAndVehicleFleetOwnerId(id, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Fuel log not found"));
+
+        fleetAccessService.validateAccess(log.getVehicle().getFleet().getId(), ownerId);
+
         return toResponse(log);
     }
 
     @Transactional
     public FuelLogResponse update(UUID id, UUID ownerId, UpdateFuelLogRequest req) {
+
         var log = fuelRepository.findByIdAndVehicleFleetOwnerId(id, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Fuel log not found"));
+
+        fleetAccessService.validateWriteAccess(log.getVehicle().getFleet().getId(), ownerId);
+
         log.setFuelDate(req.fuelDate());
         log.setMileage(req.mileage());
         log.setGallons(req.gallons());
@@ -99,8 +124,12 @@ public class FuelLogService {
 
     @Transactional
     public void delete(UUID id, UUID ownerId) {
+
         var log = fuelRepository.findByIdAndVehicleFleetOwnerId(id, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Fuel log not found"));
+
+        fleetAccessService.validateWriteAccess(log.getVehicle().getFleet().getId(), ownerId);
+
         fuelRepository.delete(log);
     }
 

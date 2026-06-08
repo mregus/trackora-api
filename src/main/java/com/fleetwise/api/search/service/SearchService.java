@@ -2,6 +2,7 @@ package com.fleetwise.api.search.service;
 
 import com.fleetwise.api.alert.entity.Alert;
 import com.fleetwise.api.alert.repository.AlertRepository;
+import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.maintenance.entity.Maintenance;
 import com.fleetwise.api.maintenance.repository.MaintenanceRepository;
 import com.fleetwise.api.search.dto.AlertSearchResult;
@@ -23,6 +24,7 @@ public class SearchService {
     private final VehicleRepository vehicleRepository;
     private final MaintenanceRepository maintenanceRepository;
     private final AlertRepository alertRepository;
+    private final FleetAccessService fleetAccessService;
 
     @Transactional(readOnly = true)
     public SearchResponse search(UUID ownerId, String query) {
@@ -41,6 +43,8 @@ public class SearchService {
                 .limit(10)
                 .map(this::toVehicleResult)
                 .toList();
+
+        fleetAccessService.validateAccess(vehicles.getFirst().fleetId(), ownerId);
 
         var maintenance = maintenanceRepository.searchMaintenance(ownerId, normalizedQuery)
                 .stream()

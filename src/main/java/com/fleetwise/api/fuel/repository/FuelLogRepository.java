@@ -28,6 +28,13 @@ public interface FuelLogRepository extends JpaRepository<FuelLog, UUID> {
     );
 
     @Query("""
+    select coalesce(sum(f.totalCost), 0)
+    from FuelLog f
+    where f.vehicle.fleet.id = :fleetId
+    """)
+    BigDecimal sumFuelCostByFleetId(@Param("fleetId") UUID fleetId);
+
+    @Query("""
     select distinct f.vehicle.fleet.id
     from FuelLog f
     """)

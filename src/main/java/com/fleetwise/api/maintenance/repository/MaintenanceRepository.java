@@ -26,6 +26,13 @@ public interface MaintenanceRepository extends JpaRepository<Maintenance, UUID> 
     );
 
     @Query("""
+    select coalesce(sum(m.cost), 0)
+    from Maintenance m
+    where m.vehicle.fleet.id = :fleetId
+    """)
+    BigDecimal sumMaintenanceCostByFleetId(@Param("fleetId") UUID fleetId);
+
+    @Query("""
     select m
     from Maintenance m
     where m.status = 'SCHEDULED'

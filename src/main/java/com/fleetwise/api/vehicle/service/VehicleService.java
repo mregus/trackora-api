@@ -7,6 +7,8 @@ import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
 import com.fleetwise.api.fleet.entity.Fleet;
 import com.fleetwise.api.fleet.repository.FleetRepository;
+import com.fleetwise.api.fleet.service.FleetAccessService;
+import com.fleetwise.api.fleet.service.FleetMemberService;
 import com.fleetwise.api.vehicle.dto.*;
 import com.fleetwise.api.vehicle.entity.Vehicle;
 import com.fleetwise.api.vehicle.entity.VehicleStatus;
@@ -26,6 +28,8 @@ public class VehicleService {
     private final FleetRepository fleetRepository;
     private final ActivityLogService activityLogService;
     private final UserRepository userRepository;
+    private final FleetMemberService fleetMemberService;
+    private final FleetAccessService fleetAccessService;
 
     @Transactional
     public VehicleResponse createVehicle(
@@ -33,6 +37,13 @@ public class VehicleService {
             UUID ownerUserId,
             CreateVehicleRequest request
     ) {
+
+        fleetMemberService.validateFleetAccess(
+                fleetId,
+                ownerUserId
+        );
+
+        fleetAccessService.validateWriteAccess(fleetId, ownerUserId);
 
         Fleet fleet = fleetRepository.findByIdAndOwnerId(fleetId, ownerUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("Fleet not found"));
@@ -71,8 +82,12 @@ public class VehicleService {
             UUID ownerUserId
     ) {
 
-        fleetRepository.findByIdAndOwnerId(fleetId, ownerUserId)
-                .orElseThrow(() -> new ResourceNotFoundException("Fleet not found"));
+        fleetMemberService.validateFleetAccess(
+                fleetId,
+                ownerUserId
+        );
+
+        fleetAccessService.validateAccess(fleetId, ownerUserId);
 
         return vehicleRepository.findByFleetIdOrderByCreatedAtDesc(fleetId)
                 .stream()
@@ -101,6 +116,8 @@ public class VehicleService {
             UUID ownerUserId,
             UpdateVehicleRequest request
     ) {
+
+        fleetAccessService.validateWriteAccess(request.fleetId(), ownerUserId);
 
         Vehicle vehicle = vehicleRepository.findByIdAndFleetOwnerId(
                         vehicleId,
@@ -143,6 +160,8 @@ public class VehicleService {
                         ownerUserId
                 )
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateWriteAccess(vehicle.getFleet().getId(), ownerUserId);
 
         vehicleRepository.delete(vehicle);
     }

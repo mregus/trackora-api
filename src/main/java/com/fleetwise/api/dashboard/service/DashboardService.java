@@ -11,6 +11,7 @@ import com.fleetwise.api.dashboard.dto.FleetHealthBreakdown;
 import com.fleetwise.api.dashboard.dto.FleetRecommendationResponse;
 import com.fleetwise.api.fleet.entity.Fleet;
 import com.fleetwise.api.fleet.repository.FleetRepository;
+import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.fuel.repository.FuelLogRepository;
 import com.fleetwise.api.maintenance.entity.Maintenance;
 import com.fleetwise.api.maintenance.entity.MaintenanceStatus;
@@ -37,14 +38,14 @@ public class DashboardService {
     private final MaintenanceRepository maintenanceRepository;
     private final FuelLogRepository fuelLogRepository;
     private final AiInsightRepository aiInsightRepository;
+    private final FleetAccessService fleetAccessService;
 
     @Transactional(readOnly = true)
     public List<FleetRecommendationResponse> getRecommendations(
             UUID fleetId,
             UUID ownerId
     ) {
-        fleetRepository.findByIdAndOwnerId(fleetId, ownerId)
-                .orElseThrow(() -> new ResourceNotFoundException("Fleet not found"));
+        fleetAccessService.validateAccess(fleetId, ownerId);
 
         List<FleetRecommendationResponse> recommendations = new ArrayList<>();
 
@@ -62,6 +63,8 @@ public class DashboardService {
         Fleet fleet = fleetRepository.findByIdAndOwnerId(fleetId, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Fleet not found"));
 
+        fleetAccessService.validateAccess(fleetId, ownerId);
+
         LocalDate startOfMonth = LocalDate.now().withDayOfMonth(1);
 
         long totalVehicles = vehicleRepository.countByFleetId(fleetId);
@@ -71,11 +74,17 @@ public class DashboardService {
 
         long openAlerts = alertRepository.countByFleetIdAndResolvedFalse(fleetId);
 
+//        BigDecimal monthlyMaintenanceCost =
+//                maintenanceRepository.sumCostByFleetIdSince(fleetId, startOfMonth);
+//
+//        BigDecimal monthlyFuelCost =
+//                fuelLogRepository.sumCostByFleetIdSince(fleetId, startOfMonth);
+
         BigDecimal monthlyMaintenanceCost =
-                maintenanceRepository.sumCostByFleetIdSince(fleetId, startOfMonth);
+                maintenanceRepository.sumMaintenanceCostByFleetId(fleetId);
 
         BigDecimal monthlyFuelCost =
-                fuelLogRepository.sumCostByFleetIdSince(fleetId, startOfMonth);
+                fuelLogRepository.sumFuelCostByFleetId(fleetId);
 
         String latestAiInsight = aiInsightRepository.findFirstByFleetIdAndVehicleIsNullOrderByCreatedAtDesc(fleetId)
                 .map(AiInsight::getSummary)

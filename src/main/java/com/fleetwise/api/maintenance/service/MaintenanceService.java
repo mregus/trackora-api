@@ -9,6 +9,8 @@ import com.fleetwise.api.alert.repository.AlertRepository;
 import com.fleetwise.api.auth.entity.User;
 import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
+import com.fleetwise.api.fleet.service.FleetAccessService;
+import com.fleetwise.api.vehicle.entity.Vehicle;
 import com.fleetwise.api.vehicle.repository.VehicleRepository;
 import com.fleetwise.api.maintenance.dto.*;
 import com.fleetwise.api.maintenance.entity.*;
@@ -27,14 +29,17 @@ public class MaintenanceService {
 
     private final MaintenanceRepository maintenanceRepository;
     private final VehicleRepository vehicleRepository;
-    private final AlertRepository alertRepository;
     private final ActivityLogService activityLogService;
     private final UserRepository userRepository;
+    private final FleetAccessService fleetAccessService;
 
     @Transactional
     public MaintenanceResponse create(UUID vehicleId, UUID ownerId, CreateMaintenanceRequest request) {
+
         var vehicle = vehicleRepository.findByIdAndFleetOwnerId(vehicleId, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateWriteAccess(vehicle.getFleet().getId(), ownerId);
 
         Maintenance record = Maintenance.builder()
                 .vehicle(vehicle)
@@ -71,6 +76,12 @@ public class MaintenanceService {
 
     @Transactional(readOnly = true)
     public List<MaintenanceResponse> getVehicleRecords(UUID vehicleId, UUID ownerId) {
+
+        Vehicle vehicle = vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateAccess(vehicle.getFleet().getId(), ownerId);
+
         vehicleRepository.findByIdAndFleetOwnerId(vehicleId, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
 
@@ -80,15 +91,25 @@ public class MaintenanceService {
 
     @Transactional(readOnly = true)
     public MaintenanceResponse getRecord(UUID id, UUID ownerId) {
+
         var record = maintenanceRepository.findByIdAndVehicleFleetOwnerId(id, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Maintenance record not found"));
+
+        Vehicle vehicle = vehicleRepository.findById(record.getVehicle().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateAccess(vehicle.getFleet().getId(), ownerId);
+
         return toResponse(record);
     }
 
     @Transactional
     public MaintenanceResponse update(UUID id, UUID ownerId, UpdateMaintenanceRequest req) {
+
         var rec = maintenanceRepository.findByIdAndVehicleFleetOwnerId(id, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Maintenance record not found"));
+
+        fleetAccessService.validateWriteAccess(rec.getVehicle().getFleet().getId(), ownerId);
 
         rec.setServiceType(req.serviceType());
         rec.setDescription(req.description());
@@ -130,6 +151,9 @@ public class MaintenanceService {
     public void delete(UUID id, UUID ownerId) {
         var rec = maintenanceRepository.findByIdAndVehicleFleetOwnerId(id, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Maintenance record not found"));
+
+        fleetAccessService.validateWriteAccess(rec.getVehicle().getFleet().getId(), ownerId);
+
         maintenanceRepository.delete(rec);
     }
 
