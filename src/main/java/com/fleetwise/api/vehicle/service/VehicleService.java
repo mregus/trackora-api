@@ -117,13 +117,13 @@ public class VehicleService {
             UpdateVehicleRequest request
     ) {
 
-        fleetAccessService.validateWriteAccess(request.fleetId(), ownerUserId);
-
         Vehicle vehicle = vehicleRepository.findByIdAndFleetOwnerId(
                         vehicleId,
                         ownerUserId
                 )
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateWriteAccess(vehicle.getFleet().getId(), ownerUserId);
 
         vehicle.setVin(request.vin());
         vehicle.setMake(request.make());

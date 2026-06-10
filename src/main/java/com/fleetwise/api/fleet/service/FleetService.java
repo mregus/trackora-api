@@ -42,6 +42,7 @@ public class FleetService {
 
         activityLogService.log(
                 user,
+                saved,
                 null,
                 ActivityAction.FLEET_CREATED,
                 "FLEET",

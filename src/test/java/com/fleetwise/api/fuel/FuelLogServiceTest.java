@@ -4,6 +4,8 @@ import com.fleetwise.api.activity.service.ActivityLogService;
 import com.fleetwise.api.auth.entity.User;
 import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
+import com.fleetwise.api.fleet.entity.Fleet;
+import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.fuel.dto.CreateFuelLogRequest;
 import com.fleetwise.api.fuel.dto.UpdateFuelLogRequest;
 import com.fleetwise.api.fuel.entity.FuelLog;
@@ -26,13 +28,18 @@ class FuelLogServiceTest {
     private final VehicleRepository vehicleRepo = mock(VehicleRepository.class);
     private final UserRepository userRepo = mock(UserRepository.class);
     private final ActivityLogService activityLogService = mock(ActivityLogService.class);
-    private final FuelLogService service = new FuelLogService(repo, vehicleRepo, activityLogService, userRepo);
+    private final FleetAccessService fleetAccessServiceService = mock(FleetAccessService.class);
+    private final FuelLogService service = new FuelLogService(repo, vehicleRepo, activityLogService, userRepo, fleetAccessServiceService);
 
     @Test
     void create_ShouldSaveFuelLog() {
-        UUID vId = UUID.randomUUID(), owner = UUID.randomUUID();
+        UUID vId = UUID.randomUUID(), owner = UUID.randomUUID(), fleetId = UUID.randomUUID();
+        Fleet fleet = new Fleet();
+        fleet.setId(fleetId);
+        Vehicle vehicle = new Vehicle();
+        vehicle.setFleet(fleet);
         when(vehicleRepo.findByIdAndFleetOwnerId(vId, owner))
-                .thenReturn(Optional.of(new Vehicle()));
+                .thenReturn(Optional.of(vehicle));
         when(repo.save(any(FuelLog.class))).thenAnswer(i -> i.getArgument(0));
         when(userRepo.findById(owner)).thenReturn(Optional.of(new User()));
 
@@ -44,12 +51,15 @@ class FuelLogServiceTest {
 
     @Test
     void update_ShouldModifyValues() {
-        UUID id = UUID.randomUUID(), user = UUID.randomUUID();
+        UUID id = UUID.randomUUID(), user = UUID.randomUUID(), fleetId = UUID.randomUUID();
 
+        Fleet fleet = new Fleet();
+        fleet.setId(fleetId);
         FuelLog log = new FuelLog();
         Vehicle vehicle = new Vehicle();
         vehicle.setId(UUID.randomUUID());
-        log.setVehicle(vehicle); // attach vehicle so toResponse() won't crash
+        vehicle.setFleet(fleet);
+        log.setVehicle(vehicle);
 
         when(repo.findByIdAndVehicleFleetOwnerId(id, user))
                 .thenReturn(Optional.of(log));

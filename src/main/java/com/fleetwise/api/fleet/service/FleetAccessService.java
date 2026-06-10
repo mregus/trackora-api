@@ -1,6 +1,8 @@
 package com.fleetwise.api.fleet.service;
 
 import com.fleetwise.api.common.exception.ForbiddenException;
+import com.fleetwise.api.common.exception.ResourceNotFoundException;
+import com.fleetwise.api.fleet.entity.Fleet;
 import com.fleetwise.api.fleet.entity.FleetMemberRole;
 import com.fleetwise.api.fleet.repository.FleetMemberRepository;
 import com.fleetwise.api.fleet.repository.FleetRepository;
@@ -32,9 +34,10 @@ public class FleetAccessService {
 
     @Transactional(readOnly = true)
     public void validateWriteAccess(UUID fleetId, UUID userId) {
-        boolean owner = fleetRepository.findByIdAndOwnerId(fleetId, userId).isPresent();
+        Fleet fleet = fleetRepository.findById(fleetId)
+                .orElseThrow(() -> new ResourceNotFoundException("Fleet not found"));
 
-        if (owner) {
+        if (fleet.getOwner().getId().equals(userId)) {
             return;
         }
 

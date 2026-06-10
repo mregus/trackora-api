@@ -5,6 +5,8 @@ import com.fleetwise.api.alert.repository.AlertRepository;
 import com.fleetwise.api.auth.entity.User;
 import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
+import com.fleetwise.api.fleet.entity.Fleet;
+import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.maintenance.dto.CreateMaintenanceRequest;
 import com.fleetwise.api.maintenance.dto.UpdateMaintenanceRequest;
 import com.fleetwise.api.maintenance.entity.*;
@@ -25,16 +27,21 @@ class MaintenanceServiceTest {
 
     private final MaintenanceRepository repo = mock(MaintenanceRepository.class);
     private final VehicleRepository vehicleRepo = mock(VehicleRepository.class);
-    private final AlertRepository alertRepo = mock(AlertRepository.class);
     private final UserRepository userRepo = mock(UserRepository.class);
     private final ActivityLogService activityLogService = mock(ActivityLogService.class);
-    private final MaintenanceService service = new MaintenanceService(repo, vehicleRepo, alertRepo, activityLogService, userRepo);
+    private final FleetAccessService fleetAccessService = mock(FleetAccessService.class);
+    private final MaintenanceService service = new MaintenanceService(repo, vehicleRepo, activityLogService, userRepo, fleetAccessService);
 
     @Test
     void create_ShouldPersistAndReturnResponse() {
-        UUID vId = UUID.randomUUID(), uId = UUID.randomUUID();
+        UUID vId = UUID.randomUUID(), uId = UUID.randomUUID(), fId = UUID.randomUUID();
+        Vehicle vehicle = new Vehicle();
+        Fleet fleet = new Fleet();
+        fleet.setId(fId);
+        vehicle.setId(vId);
+        vehicle.setFleet(fleet);
         when(vehicleRepo.findByIdAndFleetOwnerId(vId, uId))
-                .thenReturn(Optional.of(new Vehicle()));
+                .thenReturn(Optional.of(vehicle));
         when(repo.save(any(Maintenance.class))).thenAnswer(i -> i.getArgument(0));
         when(userRepo.findById(uId)).thenReturn(Optional.of(new User()));
 
@@ -48,12 +55,15 @@ class MaintenanceServiceTest {
 
     @Test
     void update_ShouldApplyNewValues() {
-        UUID id = UUID.randomUUID(), user = UUID.randomUUID();
+        UUID id = UUID.randomUUID(), user = UUID.randomUUID(), fleetId = UUID.randomUUID();
 
         Maintenance m = new Maintenance();
         Vehicle vehicle = new Vehicle();
         vehicle.setId(UUID.randomUUID());
         m.setVehicle(vehicle); // attach vehicle so toResponse() won't crash
+        Fleet fleet = new Fleet();
+        fleet.setId(fleetId);
+        vehicle.setFleet(fleet);
 
         when(repo.findByIdAndVehicleFleetOwnerId(id, user)).thenReturn(Optional.of(m));
 
