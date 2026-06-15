@@ -8,9 +8,12 @@ import com.fleetwise.api.common.exception.ResourceNotFoundException;
 import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.notification.entity.NotificationType;
 import com.fleetwise.api.notification.service.NotificationService;
-import com.fleetwise.api.telematics.dto.CreateTelematicsEventRequest;
-import com.fleetwise.api.telematics.dto.TelematicsEventResponse;
+import com.fleetwise.api.telematics.dto.*;
+import com.fleetwise.api.telematics.entity.TelematicsDevice;
 import com.fleetwise.api.telematics.entity.TelematicsEvent;
+import com.fleetwise.api.telematics.entity.TelematicsProvider;
+import com.fleetwise.api.telematics.geometris.*;
+import com.fleetwise.api.telematics.repository.TelematicsDeviceRepository;
 import com.fleetwise.api.telematics.repository.TelematicsEventRepository;
 import com.fleetwise.api.vehicle.entity.Vehicle;
 import com.fleetwise.api.vehicle.repository.VehicleRepository;
@@ -20,17 +23,22 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class TelematicsService {
 
+    private final TelematicsDeviceRepository telematicsDeviceRepository;
     private final TelematicsEventRepository telematicsEventRepository;
     private final VehicleRepository vehicleRepository;
     private final FleetAccessService fleetAccessService;
     private final AlertRepository alertRepository;
     private final NotificationService notificationService;
+    private final GeometrisPacketParser geometrisPacketParser;
+    private final GeometrisRawPacketRepository geometrisRawPacketRepository;
 
     @Transactional
     public TelematicsEventResponse createEvent(
@@ -75,6 +83,227 @@ public class TelematicsService {
         return telematicsEventRepository.findTopByVehicleIdOrderByRecordedAtDesc(vehicleId)
                 .map(this::toResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("No telematics data found"));
+    }
+
+    @Transactional
+    public TelematicsDeviceResponse registerDevice(
+            UUID userId,
+            RegisterTelematicsDeviceRequest request
+    ) {
+        Vehicle vehicle = vehicleRepository.findById(request.vehicleId())
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateWriteAccess(vehicle.getFleet().getId(), userId);
+
+        TelematicsDevice device = TelematicsDevice.builder()
+                .vehicle(vehicle)
+                .provider(request.provider())
+                .externalDeviceId(request.externalDeviceId())
+                .serialNumber(request.serialNumber())
+                .imei(request.imei())
+                .vin(request.vin())
+                .active(true)
+                .build();
+
+        return toDeviceResponse(telematicsDeviceRepository.save(device));
+    }
+
+    @Transactional(readOnly = true)
+    public List<TelematicsDeviceResponse> getDevicesForVehicle(
+            UUID userId,
+            UUID vehicleId
+    ) {
+        Vehicle vehicle = vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateAccess(vehicle.getFleet().getId(), userId);
+
+        return telematicsDeviceRepository.findByVehicleIdAndActiveTrue(vehicleId)
+                .stream()
+                .map(this::toDeviceResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<GeometrisRawPacketResponse> getLatestGeometrisRawPackets() {
+        return geometrisRawPacketRepository.findTop50ByOrderByReceivedAtDesc()
+                .stream()
+                .map(this::toRawPacketResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<GeometrisRawPacketResponse> getFailedGeometrisRawPackets() {
+        return geometrisRawPacketRepository.findTop50ByParsedSuccessfullyFalseOrderByReceivedAtDesc()
+                .stream()
+                .map(this::toRawPacketResponse)
+                .toList();
+    }
+
+    private GeometrisRawPacketResponse toRawPacketResponse(GeometrisRawPacket packet) {
+        return new GeometrisRawPacketResponse(
+                packet.getId(),
+                packet.getSerialNumber(),
+                packet.getReasonText(),
+                packet.isParsedSuccessfully(),
+                packet.getErrorMessage(),
+                packet.getReceivedAt()
+        );
+    }
+
+    private TelematicsDeviceResponse toDeviceResponse(TelematicsDevice device) {
+        return new TelematicsDeviceResponse(
+                device.getId(),
+                device.getVehicle().getId(),
+                device.getProvider(),
+                device.getExternalDeviceId(),
+                device.getSerialNumber(),
+                device.getImei(),
+                device.getVin(),
+                device.isActive(),
+                device.getCreatedAt(),
+                device.getUpdatedAt(),
+                device.getLastSeenAt()
+        );
+    }
+
+    @Transactional
+    public TelematicsEventResponse ingestGeometrisPacket(String rawPacket) {
+        try {
+            GeometrisPacket packet = geometrisPacketParser.parse(rawPacket);
+
+            geometrisRawPacketRepository.save(
+                    GeometrisRawPacket.builder()
+                            .serialNumber(packet.serialNumber())
+                            .reasonText(packet.reasonText())
+                            .rawPacket(rawPacket)
+                            .parsedSuccessfully(true)
+                            .build()
+            );
+
+            TelematicsDevice device = telematicsDeviceRepository
+                    .findByProviderAndSerialNumberAndActiveTrue(
+                            TelematicsProvider.GEOMETRIS,
+                            packet.serialNumber()
+                    )
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "No active Geometris device mapping found"
+                    ));
+
+            device.setLastSeenAt(packet.recordedAt() != null ? packet.recordedAt() : Instant.now());
+
+            Vehicle vehicle = device.getVehicle();
+
+            TelematicsEvent event = TelematicsEvent.builder()
+                    .vehicle(vehicle)
+                    .recordedAt(packet.recordedAt())
+                    .latitude(packet.latitude())
+                    .longitude(packet.longitude())
+                    .speedMph(packet.speedMph())
+                    .odometerMiles(packet.ecuOdometerMiles() != null
+                            ? packet.ecuOdometerMiles()
+                            : packet.gpsOdometerMiles())
+                    .fuelLevelPercent(packet.fuelLevelPercent())
+                    .engineTempF(celsiusToFahrenheit(packet.coolantTempC()))
+                    .batteryVoltage(packet.batteryVoltage())
+                    .checkEngine(hasActiveDtc(packet.activeDtc()))
+                    .headingDegrees(packet.headingDegrees())
+                    .idleMinutes(secondsToMinutes(packet.totalIdleDurationSeconds()))
+                    .harshBraking("HARDBRAKE".equalsIgnoreCase(packet.reasonText()))
+                    .build();
+
+            TelematicsEvent saved = telematicsEventRepository.save(event);
+
+            generateTelematicsAlerts(vehicle, saved);
+
+            return toResponse(saved);
+
+        } catch (Exception ex) {
+            geometrisRawPacketRepository.save(
+                    GeometrisRawPacket.builder()
+                            .rawPacket(rawPacket)
+                            .parsedSuccessfully(false)
+                            .errorMessage(ex.getMessage())
+                            .build()
+            );
+
+            throw ex;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<FleetTelematicsLocationResponse> getLatestFleetLocations(
+            UUID userId,
+            UUID fleetId
+    ) {
+        fleetAccessService.validateAccess(fleetId, userId);
+
+        return telematicsEventRepository.findLatestByFleetId(fleetId)
+                .stream()
+                .filter(event -> event.getLatitude() != null && event.getLongitude() != null)
+                .map(event -> {
+                    Vehicle vehicle = event.getVehicle();
+
+                    return new FleetTelematicsLocationResponse(
+                            vehicle.getId(),
+                            "%s %s".formatted(vehicle.getMake(), vehicle.getModel()),
+                            vehicle.getLicensePlate(),
+                            event.getLatitude(),
+                            event.getLongitude(),
+                            event.getSpeedMph(),
+                            event.getFuelLevelPercent(),
+                            event.isCheckEngine(),
+                            event.getHeadingDegrees(),
+                            event.getRecordedAt()
+                    );
+                })
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<TelematicsHistoryPointResponse> getVehicleHistory(
+            UUID userId,
+            UUID vehicleId
+    ) {
+        Vehicle vehicle = vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateAccess(vehicle.getFleet().getId(), userId);
+
+        Instant start = Instant.now().minus(24, ChronoUnit.HOURS);
+
+        return telematicsEventRepository.findHistoryByVehicleId(vehicleId, start)
+                .stream()
+                .map(event -> new TelematicsHistoryPointResponse(
+                        event.getLatitude(),
+                        event.getLongitude(),
+                        event.getSpeedMph(),
+                        event.getRecordedAt()
+                ))
+                .toList();
+    }
+
+    private BigDecimal celsiusToFahrenheit(Integer celsius) {
+        if (celsius == null) {
+            return null;
+        }
+
+        return BigDecimal.valueOf((celsius * 9.0 / 5.0) + 32);
+    }
+
+    private Integer secondsToMinutes(Integer seconds) {
+        if (seconds == null) {
+            return 0;
+        }
+
+        return seconds / 60;
+    }
+
+    private boolean hasActiveDtc(String dtc) {
+        return dtc != null
+                && !dtc.isBlank()
+                && !"0:0".equals(dtc)
+                && !"0".equals(dtc);
     }
 
     private void generateTelematicsAlerts(Vehicle vehicle, TelematicsEvent event) {

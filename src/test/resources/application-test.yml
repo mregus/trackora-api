@@ -5,6 +5,17 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:fleetwise}
     driver-class-name: org.postgresql.Driver
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: trackora-telematics
+      auto-offset-reset: earliest
+    producer:
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+    listener:
+      missing-topics-fatal: false
+
   jpa:
     hibernate:
       ddl-auto: validate
@@ -24,6 +35,12 @@ openai:
   api-key: test-key
   base-url: https://api.openai.com/v1
   model: gpt-4o-mini
+
+telematics:
+  kafka:
+    enabled: ${TELEMATICS_KAFKA_ENABLED:true}
+  geometris:
+    api-key: ${GEOMETRIS_API_KEY:test-geometris-key}
 
 jwt:
   secret: ${JWT_SECRET:trackora-test-jwt-secret-must-be-at-least-32-characters-long-123456}

@@ -1,6 +1,7 @@
 package com.fleetwise.api.alert.scheduler;
 
 import com.fleetwise.api.alert.entity.Alert;
+import com.fleetwise.api.alert.entity.AlertSeverity;
 import com.fleetwise.api.alert.entity.AlertType;
 import com.fleetwise.api.alert.repository.AlertRepository;
 import com.fleetwise.api.maintenance.repository.MaintenanceRepository;
@@ -32,6 +33,7 @@ public class AlertScheduler {
             Alert alert = Alert.builder()
                     .fleet(v.getFleet())
                     .vehicle(v)
+                    .severity(AlertSeverity.WARNING)
                     .type(AlertType.MAINTENANCE_DUE)
                     .message("Maintenance check due soon for vehicle: " + v.getMake() + " " + v.getModel())
                     .build();

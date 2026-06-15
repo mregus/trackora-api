@@ -50,6 +50,9 @@ public class TelematicsEvent {
     @Column(name = "check_engine", nullable = false)
     private boolean checkEngine;
 
+    @Column(name = "heading_degrees")
+    private Integer headingDegrees;
+
     @Column(name = "harsh_braking", nullable = false)
     private boolean harshBraking;
 
