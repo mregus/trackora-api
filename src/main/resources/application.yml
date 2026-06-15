@@ -1,5 +1,6 @@
 server:
   port: 8080
+  address: 0.0.0.0
 
 spring:
   application:
@@ -40,7 +41,7 @@ spring:
 
 telematics:
   kafka:
-    enabled: ${TELEMATICS_KAFKA_ENABLED:true}
+    enabled: ${TELEMATICS_KAFKA_ENABLED:false}
   geometris:
     api-key: ${GEOMETRIS_API_KEY:test-geometris-key}
 
