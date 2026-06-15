@@ -1,12 +1,12 @@
 server:
-  port: 8080
+  port: ${PORT:8080}
   address: 0.0.0.0
 
 spring:
   application:
     name: fleetwise-api
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
     consumer:
       group-id: trackora-telematics
       auto-offset-reset: earliest
@@ -16,9 +16,9 @@ spring:
     listener:
       missing-topics-fatal: false
   datasource:
-    url: jdbc:postgresql://localhost:5432/fleetwise
-    username: fleetwise
-    password: fleetwise
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -43,10 +43,10 @@ telematics:
   kafka:
     enabled: ${TELEMATICS_KAFKA_ENABLED:false}
   geometris:
-    api-key: ${GEOMETRIS_API_KEY:test-geometris-key}
+    api-key: ${GEOMETRIS_API_KEY}
 
 jwt:
-  secret: ${JWT_SECRET:trackora-local-jwt-secret-must-be-at-least-32-characters-long-123456}
+  secret: ${JWT_SECRET}
   expiration-minutes: 120
 
 management:
@@ -56,8 +56,8 @@ management:
         include: health,info
 
 openai:
-  enabled: ${OPENAI_ENABLED:false}
-  api-key: ${OPENAI_API_KEY:dummy-key}
+  enabled: ${OPENAI_ENABLED}
+  api-key: ${OPENAI_API_KEY}
   base-url: https://api.openai.com/v1
   model: gpt-4o-mini
 
@@ -65,10 +65,10 @@ fleetwise:
   uploads-dir: ${FLEETWISE_UPLOADS_DIR:uploads}
 
 internal:
-  api-key: ${INTERNAL_API_KEY:dev-internal-key}
+  api-key: ${INTERNAL_API_KEY}
 
 storage:
-  provider: ${STORAGE_PROVIDER:local}
+  provider: ${STORAGE_PROVIDER}
 
 aws:
   s3:
@@ -87,14 +87,14 @@ app:
 
 springdoc:
   swagger-ui:
-    enabled: ${SWAGGER_ENABLED:false}
+    enabled: ${SWAGGER_ENABLED:true}
     path: /swagger-ui.html
     operations-sorter: method
     tags-sorter: alpha
     display-request-duration: true
   api-docs:
-    enabled: ${SWAGGER_ENABLED:false}
+    enabled: ${SWAGGER_ENABLED:true}
     path: /v3/api-docs
 
 swagger:
-  api-key: ${SWAGGER_API_KEY:dev-swagger-key}
+  api-key: ${SWAGGER_API_KEY}
