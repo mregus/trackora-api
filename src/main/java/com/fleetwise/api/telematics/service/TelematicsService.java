@@ -18,12 +18,14 @@ import com.fleetwise.api.telematics.repository.TelematicsEventRepository;
 import com.fleetwise.api.vehicle.entity.Vehicle;
 import com.fleetwise.api.vehicle.repository.VehicleRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,6 +33,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TelematicsService {
 
+    private final GeometrisGpsTrailDecoder gpsTrailDecoder;
     private final TelematicsDeviceRepository telematicsDeviceRepository;
     private final TelematicsEventRepository telematicsEventRepository;
     private final VehicleRepository vehicleRepository;
@@ -39,6 +42,7 @@ public class TelematicsService {
     private final NotificationService notificationService;
     private final GeometrisPacketParser geometrisPacketParser;
     private final GeometrisRawPacketRepository geometrisRawPacketRepository;
+    private final SimpMessagingTemplate messagingTemplate;
 
     @Transactional
     public TelematicsEventResponse createEvent(
@@ -214,9 +218,97 @@ public class TelematicsService {
 
             TelematicsEvent saved = telematicsEventRepository.save(event);
 
+            if (packet.locationTrail() != null &&
+                    !packet.locationTrail().isBlank()) {
+
+                saveTrailPoints(vehicle, packet, saved);
+            }
+
+            messagingTemplate.convertAndSend(
+                    "/topic/fleets/" + vehicle.getFleet().getId(),
+                    toLiveEvent(saved)
+            );
+
             generateTelematicsAlerts(vehicle, saved);
 
             return toResponse(saved);
+
+        } catch (Exception ex) {
+            geometrisRawPacketRepository.save(
+                    GeometrisRawPacket.builder()
+                            .rawPacket(rawPacket)
+                            .parsedSuccessfully(false)
+                            .errorMessage(ex.getMessage())
+                            .build()
+            );
+
+            throw ex;
+        }
+    }
+
+    @Transactional
+    public TelematicsEvent ingestGeometrisPacketEntity(String rawPacket) {
+        // same logic as ingestGeometrisPacket(...)
+        // but return saved TelematicsEvent instead of DTO
+        try {
+            GeometrisPacket packet = geometrisPacketParser.parse(rawPacket);
+
+            geometrisRawPacketRepository.save(
+                    GeometrisRawPacket.builder()
+                            .serialNumber(packet.serialNumber())
+                            .reasonText(packet.reasonText())
+                            .rawPacket(rawPacket)
+                            .parsedSuccessfully(true)
+                            .build()
+            );
+
+            TelematicsDevice device = telematicsDeviceRepository
+                    .findByProviderAndSerialNumberAndActiveTrue(
+                            TelematicsProvider.GEOMETRIS,
+                            packet.serialNumber()
+                    )
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "No active Geometris device mapping found"
+                    ));
+
+            device.setLastSeenAt(packet.recordedAt() != null ? packet.recordedAt() : Instant.now());
+
+            Vehicle vehicle = device.getVehicle();
+
+            TelematicsEvent event = TelematicsEvent.builder()
+                    .vehicle(vehicle)
+                    .recordedAt(packet.recordedAt())
+                    .latitude(packet.latitude())
+                    .longitude(packet.longitude())
+                    .speedMph(packet.speedMph())
+                    .odometerMiles(packet.ecuOdometerMiles() != null
+                            ? packet.ecuOdometerMiles()
+                            : packet.gpsOdometerMiles())
+                    .fuelLevelPercent(packet.fuelLevelPercent())
+                    .engineTempF(celsiusToFahrenheit(packet.coolantTempC()))
+                    .batteryVoltage(packet.batteryVoltage())
+                    .checkEngine(hasActiveDtc(packet.activeDtc()))
+                    .headingDegrees(packet.headingDegrees())
+                    .idleMinutes(secondsToMinutes(packet.totalIdleDurationSeconds()))
+                    .harshBraking("HARDBRAKE".equalsIgnoreCase(packet.reasonText()))
+                    .build();
+
+            TelematicsEvent saved = telematicsEventRepository.save(event);
+
+            if (packet.locationTrail() != null &&
+                    !packet.locationTrail().isBlank()) {
+
+                saveTrailPoints(vehicle, packet, saved);
+            }
+
+            messagingTemplate.convertAndSend(
+                    "/topic/fleets/" + vehicle.getFleet().getId(),
+                    toLiveEvent(saved)
+            );
+
+            generateTelematicsAlerts(vehicle, saved);
+
+            return saved;
 
         } catch (Exception ex) {
             geometrisRawPacketRepository.save(
@@ -263,24 +355,108 @@ public class TelematicsService {
     @Transactional(readOnly = true)
     public List<TelematicsHistoryPointResponse> getVehicleHistory(
             UUID userId,
-            UUID vehicleId
+            UUID vehicleId,
+            Instant start,
+            Instant end
     ) {
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
 
         fleetAccessService.validateAccess(vehicle.getFleet().getId(), userId);
 
-        Instant start = Instant.now().minus(24, ChronoUnit.HOURS);
+        if (end.isBefore(start)) {
+            throw new IllegalArgumentException("End date must be after start date");
+        }
 
-        return telematicsEventRepository.findHistoryByVehicleId(vehicleId, start)
+        return telematicsEventRepository.findHistoryByVehicleId(vehicleId, start, end)
                 .stream()
                 .map(event -> new TelematicsHistoryPointResponse(
                         event.getLatitude(),
                         event.getLongitude(),
                         event.getSpeedMph(),
-                        event.getRecordedAt()
+                        event.getRecordedAt(),
+                        event.getVehicle().getId(),
+                        event.getVehicle().getMake(),
+                        event.getVehicle().getModel(),
+                        event.getVehicle().getLicensePlate()
                 ))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<TelematicsTripResponse> getVehicleTrips(
+            UUID userId,
+            UUID vehicleId,
+            Instant start,
+            Instant end,
+            int gapMinutes,
+            int page,
+            int size
+    ) {
+        Vehicle vehicle = vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+
+        fleetAccessService.validateAccess(vehicle.getFleet().getId(), userId);
+
+        List<TelematicsEvent> points =
+                telematicsEventRepository.findHistoryByVehicleId(vehicleId, start, end);
+
+        List<List<TelematicsEvent>> trips = new ArrayList<>();
+        List<TelematicsEvent> currentTrip = new ArrayList<>();
+
+        for (TelematicsEvent point : points) {
+            if (currentTrip.isEmpty()) {
+                currentTrip.add(point);
+                continue;
+            }
+
+            TelematicsEvent previous = currentTrip.get(currentTrip.size() - 1);
+
+//            long gapMinutes = ChronoUnit.MINUTES.between(
+//                    previous.getRecordedAt(),
+//                    point.getRecordedAt()
+//            );
+
+            long gap = ChronoUnit.MINUTES.between(
+                    previous.getRecordedAt(),
+                    point.getRecordedAt()
+            );
+
+            if (gap >= gapMinutes) {
+                trips.add(currentTrip);
+                currentTrip = new ArrayList<>();
+            }
+
+//            if (gapMinutes >= 15) {
+//                trips.add(currentTrip);
+//                currentTrip = new ArrayList<>();
+//            }
+
+            currentTrip.add(point);
+        }
+
+        if (!currentTrip.isEmpty()) {
+            trips.add(currentTrip);
+        }
+
+        List<TelematicsTripResponse> tripResponses = trips.stream()
+                .filter(trip -> trip.size() >= 2)
+                .map(this::toTripResponse)
+                .toList();
+
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.max(size, 1);
+
+        int from = Math.min(safePage * safeSize, tripResponses.size());
+        int to = Math.min(from + safeSize, tripResponses.size());
+
+        return new PageResponse<>(
+                tripResponses.subList(from, to),
+                safePage,
+                safeSize,
+                tripResponses.size(),
+                (int) Math.ceil((double) tripResponses.size() / safeSize)
+        );
     }
 
     private BigDecimal celsiusToFahrenheit(Integer celsius) {
@@ -388,6 +564,84 @@ public class TelematicsService {
                 event.isCheckEngine(),
                 event.isHarshBraking(),
                 event.getIdleMinutes()
+        );
+    }
+
+    private LiveVehicleLocationEvent toLiveEvent(TelematicsEvent saved) {
+        Vehicle vehicle = saved.getVehicle();
+
+        return new LiveVehicleLocationEvent(
+                vehicle.getId(),
+                vehicle.getFleet().getId(),
+                "%s %s".formatted(vehicle.getMake(), vehicle.getModel()),
+                vehicle.getLicensePlate(),
+                saved.getLatitude(),
+                saved.getLongitude(),
+                saved.getSpeedMph(),
+                saved.getHeadingDegrees(),
+                saved.getFuelLevelPercent(),
+                saved.isCheckEngine(),
+                saved.getRecordedAt()
+        );
+    }
+
+    private void saveTrailPoints(
+            Vehicle vehicle,
+            GeometrisPacket packet,
+            TelematicsEvent latestEvent
+    ) {
+
+        List<GeometrisGpsTrailPoint> trailPoints =
+                gpsTrailDecoder.decode(
+                        packet.latitude(),
+                        packet.longitude(),
+                        packet.recordedAt(),
+                        packet.locationTrail()
+                );
+
+        for (GeometrisGpsTrailPoint point : trailPoints) {
+
+            TelematicsEvent trailEvent =
+                    TelematicsEvent.builder()
+                            .vehicle(vehicle)
+                            .recordedAt(point.recordedAt())
+                            .latitude(point.latitude())
+                            .longitude(point.longitude())
+                            .speedMph(point.speedMph())
+                            .fuelLevelPercent(latestEvent.getFuelLevelPercent())
+                            .headingDegrees(latestEvent.getHeadingDegrees())
+//                            .ignitionOn(latestEvent.isIgnitionOn())
+                            .build();
+
+            telematicsEventRepository.save(trailEvent);
+        }
+    }
+
+    private TelematicsTripResponse toTripResponse(List<TelematicsEvent> trip) {
+        Instant startTime = trip.get(0).getRecordedAt();
+        Instant endTime = trip.get(trip.size() - 1).getRecordedAt();
+
+        BigDecimal maxSpeed = trip.stream()
+                .map(TelematicsEvent::getSpeedMph)
+                .filter(speed -> speed != null)
+                .max(BigDecimal::compareTo)
+                .orElse(BigDecimal.ZERO);
+
+        BigDecimal avgSpeed = BigDecimal.valueOf(
+                trip.stream()
+                        .map(TelematicsEvent::getSpeedMph)
+                        .filter(speed -> speed != null)
+                        .mapToDouble(BigDecimal::doubleValue)
+                        .average()
+                        .orElse(0)
+        );
+
+        return new TelematicsTripResponse(
+                startTime,
+                endTime,
+                trip.size(),
+                maxSpeed,
+                avgSpeed
         );
     }
 }

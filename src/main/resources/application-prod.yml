@@ -6,7 +6,7 @@ spring:
   application:
     name: fleetwise-api
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: trackora-telematics
       auto-offset-reset: earliest
@@ -68,7 +68,7 @@ internal:
   api-key: ${INTERNAL_API_KEY}
 
 storage:
-  provider: ${STORAGE_PROVIDER}
+  provider: ${STORAGE_PROVIDER:local}
 
 aws:
   s3:

@@ -80,7 +80,7 @@ email:
   provider: resend
   from: ${EMAIL_FROM:noreply@trackora.solutions}
   resend:
-    api-key: ${RESEND_API_KEY}
+    api-key: ${RESEND_API_KEY:dummy_resend_key}
 
 app:
   frontend-url: ${APP_FRONTEND_URL:http://localhost:4200}

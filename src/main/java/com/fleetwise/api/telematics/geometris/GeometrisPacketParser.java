@@ -37,7 +37,8 @@ public class GeometrisPacketParser {
                 value(fields, 14),
                 toBigDecimal(value(fields, 15)),
                 value(fields, 16),
-                millivoltsToVolts(value(fields, 17))
+                millivoltsToVolts(value(fields, 17)),
+                fields.length > 18 ? value(fields, 18) : null
         );
     }
 

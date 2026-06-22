@@ -33,11 +33,12 @@ public interface TelematicsEventRepository
     where t.vehicle.id = :vehicleId
       and t.latitude is not null
       and t.longitude is not null
-      and t.recordedAt >= :start
+      and t.recordedAt between :start and :end
     order by t.recordedAt asc
     """)
     List<TelematicsEvent> findHistoryByVehicleId(
             UUID vehicleId,
-            Instant start
+            Instant start,
+            Instant end
     );
 }

@@ -42,6 +42,13 @@ telematics:
   geometris:
     api-key: ${GEOMETRIS_API_KEY:test-geometris-key}
 
+email:
+  enabled: ${EMAIL_ENABLED:false}
+  provider: resend
+  from: ${EMAIL_FROM:noreply@trackora.solutions}
+  resend:
+    api-key: ${RESEND_API_KEY:dummy-resend-key}
+
 jwt:
   secret: ${JWT_SECRET:trackora-test-jwt-secret-must-be-at-least-32-characters-long-123456}
   expiration-minutes: 120

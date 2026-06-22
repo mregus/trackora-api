@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -94,9 +95,37 @@ public class TelematicsController {
     @GetMapping("/api/vehicles/{vehicleId}/telematics/history")
     public List<TelematicsHistoryPointResponse> getVehicleHistory(
             @AuthenticationPrincipal UserPrincipal principal,
-            @PathVariable UUID vehicleId
+            @PathVariable UUID vehicleId,
+            @RequestParam Instant start,
+            @RequestParam Instant end
     ) {
-        return telematicsService.getVehicleHistory(principal.getId(), vehicleId);
+        return telematicsService.getVehicleHistory(
+                principal.getId(),
+                vehicleId,
+                start,
+                end
+        );
+    }
+
+    @GetMapping("/api/vehicles/{vehicleId}/telematics/trips")
+    public PageResponse<TelematicsTripResponse> getVehicleTrips(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable UUID vehicleId,
+            @RequestParam Instant start,
+            @RequestParam Instant end,
+            @RequestParam(defaultValue = "15") int gapMinutes,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        return telematicsService.getVehicleTrips(
+                principal.getId(),
+                vehicleId,
+                start,
+                end,
+                gapMinutes,
+                page,
+                size
+        );
     }
 
     @GetMapping("/api/telematics/providers/geometris/raw-packets")

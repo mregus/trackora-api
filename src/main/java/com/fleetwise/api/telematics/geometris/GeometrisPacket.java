@@ -21,5 +21,6 @@ public record GeometrisPacket(
         String vin,
         BigDecimal fuelLevelPercent,
         String activeDtc,
-        BigDecimal batteryVoltage
+        BigDecimal batteryVoltage,
+        String locationTrail
 ) {}

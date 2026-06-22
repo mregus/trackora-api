@@ -63,6 +63,13 @@ openai:
 fleetwise:
   uploads-dir: ${FLEETWISE_UPLOADS_DIR:uploads}
 
+email:
+  enabled: ${EMAIL_ENABLED:false}
+  provider: resend
+  from: ${EMAIL_FROM:noreply@trackora.solutions}
+  resend:
+    api-key: ${RESEND_API_KEY:dummy-resend-key}
+
 springdoc:
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:true}
