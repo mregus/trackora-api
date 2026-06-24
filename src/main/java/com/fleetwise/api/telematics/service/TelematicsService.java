@@ -1,5 +1,6 @@
 package com.fleetwise.api.telematics.service;
 
+import com.fleetwise.api.alert.dto.LiveAlertEvent;
 import com.fleetwise.api.alert.entity.Alert;
 import com.fleetwise.api.alert.entity.AlertSeverity;
 import com.fleetwise.api.alert.entity.AlertType;
@@ -9,15 +10,19 @@ import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.notification.entity.NotificationType;
 import com.fleetwise.api.notification.service.NotificationService;
 import com.fleetwise.api.telematics.dto.*;
+import com.fleetwise.api.telematics.entity.RawTelematicsPacket;
 import com.fleetwise.api.telematics.entity.TelematicsDevice;
 import com.fleetwise.api.telematics.entity.TelematicsEvent;
 import com.fleetwise.api.telematics.entity.TelematicsProvider;
 import com.fleetwise.api.telematics.geometris.*;
+import com.fleetwise.api.telematics.repository.RawTelematicsPacketRepository;
 import com.fleetwise.api.telematics.repository.TelematicsDeviceRepository;
 import com.fleetwise.api.telematics.repository.TelematicsEventRepository;
 import com.fleetwise.api.vehicle.entity.Vehicle;
 import com.fleetwise.api.vehicle.repository.VehicleRepository;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +38,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TelematicsService {
 
+    Logger logger = LoggerFactory.getLogger(TelematicsService.class);
+
     private final GeometrisGpsTrailDecoder gpsTrailDecoder;
     private final TelematicsDeviceRepository telematicsDeviceRepository;
     private final TelematicsEventRepository telematicsEventRepository;
@@ -43,6 +50,7 @@ public class TelematicsService {
     private final GeometrisPacketParser geometrisPacketParser;
     private final GeometrisRawPacketRepository geometrisRawPacketRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final RawTelematicsPacketRepository rawTelematicsPacketRepository;
 
     @Transactional
     public TelematicsEventResponse createEvent(
@@ -70,7 +78,9 @@ public class TelematicsService {
                 .build();
 
         TelematicsEvent saved = telematicsEventRepository.save(event);
+
         generateTelematicsAlerts(vehicle, saved);
+
         return toResponse(saved);
     }
 
@@ -231,6 +241,8 @@ public class TelematicsService {
 
             generateTelematicsAlerts(vehicle, saved);
 
+            generateDriverBehaviorAlerts(vehicle, packet);
+
             return toResponse(saved);
 
         } catch (Exception ex) {
@@ -250,6 +262,7 @@ public class TelematicsService {
     public TelematicsEvent ingestGeometrisPacketEntity(String rawPacket) {
         // same logic as ingestGeometrisPacket(...)
         // but return saved TelematicsEvent instead of DTO
+        RawTelematicsPacket raw = saveRawPacket(rawPacket);
         try {
             GeometrisPacket packet = geometrisPacketParser.parse(rawPacket);
 
@@ -308,6 +321,11 @@ public class TelematicsService {
 
             generateTelematicsAlerts(vehicle, saved);
 
+            generateDriverBehaviorAlerts(vehicle, packet);
+
+            raw.setProcessed(true);
+            rawTelematicsPacketRepository.save(raw);
+
             return saved;
 
         } catch (Exception ex) {
@@ -318,6 +336,10 @@ public class TelematicsService {
                             .errorMessage(ex.getMessage())
                             .build()
             );
+
+            raw.setProcessed(false);
+            raw.setErrorMessage(ex.getMessage());
+            rawTelematicsPacketRepository.save(raw);
 
             throw ex;
         }
@@ -514,12 +536,40 @@ public class TelematicsService {
         }
     }
 
-    private void createAlert(
+    private Alert createAlert(
             Vehicle vehicle,
             AlertType type,
             AlertSeverity severity,
             String message
     ) {
+        boolean duplicateOpenAlert =
+                alertRepository.existsByVehicleIdAndTypeAndResolvedFalse(vehicle.getId(), type);
+
+        if (duplicateOpenAlert) {
+            logger.info(
+                    "Duplicate open alert exists. Publishing live alert only to /topic/fleets/{}/alerts: {}",
+                    vehicle.getFleet().getId(),
+                    message
+            );
+
+            messagingTemplate.convertAndSend(
+                    "/topic/fleets/" + vehicle.getFleet().getId() + "/alerts",
+                    new LiveAlertEvent(
+                            null,
+                            vehicle.getFleet().getId(),
+                            vehicle.getId(),
+                            "%s %s".formatted(vehicle.getMake(), vehicle.getModel()),
+                            vehicle.getLicensePlate(),
+                            type.name(),
+                            severity.name(),
+                            message,
+                            Instant.now()
+                    )
+            );
+
+            return null;
+        }
+
         Alert alert = Alert.builder()
                 .fleet(vehicle.getFleet())
                 .vehicle(vehicle)
@@ -529,7 +579,7 @@ public class TelematicsService {
                 .resolved(false)
                 .build();
 
-        alertRepository.save(alert);
+        Alert saved = alertRepository.save(alert);
 
         notificationService.create(
                 vehicle.getFleet().getOwner().getId(),
@@ -539,6 +589,29 @@ public class TelematicsService {
                         ? NotificationType.CRITICAL_ALERT
                         : NotificationType.SYSTEM
         );
+
+        logger.info(
+                "Publishing live alert to /topic/fleets/{}/alerts: {}",
+                vehicle.getFleet().getId(),
+                message
+        );
+
+        messagingTemplate.convertAndSend(
+                "/topic/fleets/" + vehicle.getFleet().getId() + "/alerts",
+                new LiveAlertEvent(
+                        saved.getId(),
+                        vehicle.getFleet().getId(),
+                        vehicle.getId(),
+                        "%s %s".formatted(vehicle.getMake(), vehicle.getModel()),
+                        vehicle.getLicensePlate(),
+                        saved.getType().name(),
+                        saved.getSeverity().name(),
+                        saved.getMessage(),
+                        saved.getCreatedAt()
+                )
+        );
+
+        return saved;
     }
 
     private boolean isLessThan(BigDecimal value, BigDecimal threshold) {
@@ -621,6 +694,8 @@ public class TelematicsService {
         Instant startTime = trip.get(0).getRecordedAt();
         Instant endTime = trip.get(trip.size() - 1).getRecordedAt();
 
+        long durationMinutes = ChronoUnit.MINUTES.between(startTime, endTime);
+
         BigDecimal maxSpeed = trip.stream()
                 .map(TelematicsEvent::getSpeedMph)
                 .filter(speed -> speed != null)
@@ -636,12 +711,132 @@ public class TelematicsService {
                         .orElse(0)
         );
 
+        BigDecimal distanceMiles = calculateDistanceMiles(trip);
+
         return new TelematicsTripResponse(
                 startTime,
                 endTime,
                 trip.size(),
                 maxSpeed,
-                avgSpeed
+                avgSpeed,
+                durationMinutes,
+                distanceMiles
         );
+    }
+
+    private BigDecimal calculateDistanceMiles(List<TelematicsEvent> points) {
+        double totalMiles = 0.0;
+
+        for (int i = 1; i < points.size(); i++) {
+            TelematicsEvent previous = points.get(i - 1);
+            TelematicsEvent current = points.get(i);
+
+            if (previous.getLatitude() == null ||
+                    previous.getLongitude() == null ||
+                    current.getLatitude() == null ||
+                    current.getLongitude() == null) {
+                continue;
+            }
+
+            totalMiles += haversineMiles(
+                    previous.getLatitude(),
+                    previous.getLongitude(),
+                    current.getLatitude(),
+                    current.getLongitude()
+            );
+        }
+
+        return BigDecimal.valueOf(totalMiles);
+    }
+
+    private double haversineMiles(
+            double lat1,
+            double lon1,
+            double lat2,
+            double lon2
+    ) {
+        final double earthRadiusMiles = 3958.8;
+
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+
+        double a =
+                Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                        + Math.cos(Math.toRadians(lat1))
+                        * Math.cos(Math.toRadians(lat2))
+                        * Math.sin(dLon / 2)
+                        * Math.sin(dLon / 2);
+
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+        return earthRadiusMiles * c;
+    }
+
+    private RawTelematicsPacket saveRawPacket(String rawPacket) {
+        String[] fields = rawPacket == null ? new String[0] : rawPacket.split(",", -1);
+
+        String packetType = fields.length > 0 ? fields[0] : "UNKNOWN";
+        String serial = fields.length > 1 ? fields[1] : null;
+
+        return rawTelematicsPacketRepository.save(
+                RawTelematicsPacket.builder()
+                        .deviceSerial(serial)
+                        .packetType(packetType)
+                        .rawPayload(rawPacket)
+                        .processed(false)
+                        .build()
+        );
+    }
+
+    private void generateDriverBehaviorAlerts(Vehicle vehicle, GeometrisPacket packet) {
+        String reason = packet.reasonText();
+
+        if (reason == null || reason.isBlank()) {
+            return;
+        }
+
+        logger.info("Driver behavior reason received: {}", reason);
+
+        switch (reason.toUpperCase()) {
+            case "HARDBRAKE" -> createAlert(
+                    vehicle,
+                    AlertType.HARSH_BRAKING,
+                    AlertSeverity.WARNING,
+                    "%s %s harsh braking detected."
+                            .formatted(vehicle.getMake(), vehicle.getModel())
+            );
+
+            case "HARDACCEL" -> createAlert(
+                    vehicle,
+                    AlertType.HARSH_ACCELERATION,
+                    AlertSeverity.WARNING,
+                    "%s %s harsh acceleration detected."
+                            .formatted(vehicle.getMake(), vehicle.getModel())
+            );
+
+            case "HARDTURN" -> createAlert(
+                    vehicle,
+                    AlertType.HARSH_TURN,
+                    AlertSeverity.WARNING,
+                    "%s %s harsh turn detected."
+                            .formatted(vehicle.getMake(), vehicle.getModel())
+            );
+
+            case "HARDSTOP" -> createAlert(
+                    vehicle,
+                    AlertType.HARD_STOP,
+                    AlertSeverity.CRITICAL,
+                    "%s %s hard stop / possible impact detected."
+                            .formatted(vehicle.getMake(), vehicle.getModel())
+            );
+
+            case "SPEEDING" -> createAlert(
+                    vehicle,
+                    AlertType.SPEEDING,
+                    AlertSeverity.WARNING,
+                    "%s %s speeding event detected."
+                            .formatted(vehicle.getMake(), vehicle.getModel())
+            );
+        }
     }
 }

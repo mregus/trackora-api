@@ -8,5 +8,7 @@ public record TelematicsTripResponse(
         Instant endTime,
         int pointCount,
         BigDecimal maxSpeedMph,
-        BigDecimal avgSpeedMph
+        BigDecimal avgSpeedMph,
+        Long durationMinutes,
+        BigDecimal distanceMiles
 ) {}

@@ -45,6 +45,9 @@ public class Vehicle {
     @Column(nullable = false)
     private VehicleStatus status;
 
+    @Column(name = "telematics_device_serial")
+    private String telematicsDeviceSerial;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

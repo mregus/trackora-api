@@ -10,82 +10,127 @@ public class GeometrisPacketParser {
 
     public GeometrisPacket parse(String rawPacket) {
         if (rawPacket == null || rawPacket.isBlank()) {
-            throw new IllegalArgumentException("Geometris packet is required");
+            throw new IllegalArgumentException("Raw Geometris packet is required");
         }
 
         String[] fields = rawPacket.trim().split(",", -1);
 
-        if (fields.length < 18) {
+        if (fields.length < 2) {
             throw new IllegalArgumentException("Invalid Geometris packet format");
         }
 
+        if ("F001".equalsIgnoreCase(value(fields, 0))) {
+            return parseInventoryPacket(fields);
+        }
+
+        return parseGpsTrailPacket(fields);
+    }
+
+    private GeometrisPacket parseInventoryPacket(String[] fields) {
+        if (fields.length < 24) {
+            throw new IllegalArgumentException("Invalid Geometris inventory packet format");
+        }
+
         return new GeometrisPacket(
-                value(fields, 0),
-                value(fields, 1),
-                value(fields, 2),
-                toInstant(value(fields, 3)),
-                toDouble(value(fields, 4)),
-                toDouble(value(fields, 5)),
-                toBigDecimal(value(fields, 6)),
-                toInteger(value(fields, 7)),
-                toBigDecimal(value(fields, 8)),
-                toInteger(value(fields, 9)),
-                toInteger(value(fields, 10)),
-                toInteger(value(fields, 11)),
-                toInteger(value(fields, 12)),
-                toBigDecimal(cleanTrailingText(value(fields, 13))),
-                value(fields, 14),
-                toBigDecimal(value(fields, 15)),
-                value(fields, 16),
-                millivoltsToVolts(value(fields, 17)),
-                fields.length > 18 ? value(fields, 18) : null
+                value(fields, 0),                           // format crc F001
+                value(fields, 1),                           // serial
+                value(fields, 2),                           // reason text
+                parseEpochSeconds(value(fields, 3)),        // event time
+                parseDouble(value(fields, 4)),              // lat
+                parseDouble(value(fields, 5)),              // lon
+                parseBigDecimal(value(fields, 10)),         // speed
+                parseInteger(value(fields, 11)),            // heading
+                parseOdometer(value(fields, 12)),           // gps odometer
+                parseInteger(value(fields, 15)),            // ignition duration
+                parseInteger(value(fields, 16)),            // total idle duration
+                parseInteger(value(fields, 17)),            // rpm
+                parseInteger(value(fields, 18)),            // coolant temp c
+                parseOdometer(value(fields, 20)),           // ecu odometer
+                blankToNull(value(fields, 21)),             // vin
+                parseBigDecimal(value(fields, 22)),         // fuel %
+                blankToNull(value(fields, 23)),             // active dtc
+                parseBigDecimal(value(fields, 24)),         // battery/internal/throttle field for now
+                null                                              // location trail
+        );
+    }
+
+    private GeometrisPacket parseGpsTrailPacket(String[] fields) {
+        if (fields.length < 12) {
+            throw new IllegalArgumentException("Invalid Geometris GPS trail packet format");
+        }
+
+        return new GeometrisPacket(
+                value(fields, 0),                           // format crc/checksum e.g. 5873
+                value(fields, 1),                           // serial
+                "GPS_TRAIL",                                      // synthetic reason
+                parseEpochSeconds(value(fields, 2)),        // event time
+                parseDouble(value(fields, 3)),              // lat
+                parseDouble(value(fields, 4)),              // lon
+                parseBigDecimal(value(fields, 9)),          // speed
+                parseInteger(value(fields, 8)),             // heading
+                parseOdometer(value(fields, 10)),           // odometer
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                blankToNull(value(fields, 11))              // location trail
         );
     }
 
     private String value(String[] fields, int index) {
-        String value = fields[index];
+        if (index >= fields.length) {
+            return null;
+        }
 
+        return fields[index] == null ? null : fields[index].trim();
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private Instant parseEpochSeconds(String value) {
         if (value == null || value.isBlank()) {
             return null;
         }
 
-        return value.trim();
+        return Instant.ofEpochSecond(Long.parseLong(value.trim()));
     }
 
-    private Instant toInstant(String value) {
-        if (value == null) {
-            return Instant.now();
-        }
-
-        return Instant.ofEpochSecond(Long.parseLong(value));
-    }
-
-    private Double toDouble(String value) {
-        return value == null ? null : Double.valueOf(value);
-    }
-
-    private Integer toInteger(String value) {
-        return value == null ? null : Integer.valueOf(value);
-    }
-
-    private BigDecimal toBigDecimal(String value) {
-        return value == null ? null : new BigDecimal(value);
-    }
-
-    private String cleanTrailingText(String value) {
-        if (value == null) {
+    private Integer parseInteger(String value) {
+        if (value == null || value.isBlank()) {
             return null;
         }
 
-        return value.replaceAll("[^0-9.\\-]", "");
+        return Integer.parseInt(value.trim());
     }
 
-    private BigDecimal millivoltsToVolts(String value) {
-        if (value == null) {
+    private Double parseDouble(String value) {
+        if (value == null || value.isBlank()) {
             return null;
         }
 
-        return new BigDecimal(value)
-                .divide(BigDecimal.valueOf(1000));
+        return Double.parseDouble(value.trim());
+    }
+
+    private BigDecimal parseBigDecimal(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        return new BigDecimal(value.trim());
+    }
+
+    private BigDecimal parseOdometer(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        return new BigDecimal(value.trim().replace("T", ""));
     }
 }
