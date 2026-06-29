@@ -38,7 +38,7 @@ openai:
 
 telematics:
   kafka:
-    enabled: ${TELEMATICS_KAFKA_ENABLED:true}
+    enabled: ${TELEMATICS_KAFKA_ENABLED:false}
   geometris:
     api-key: ${GEOMETRIS_API_KEY:test-geometris-key}
 

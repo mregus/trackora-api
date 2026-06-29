@@ -75,6 +75,11 @@ aws:
     bucket: ${AWS_S3_BUCKET:trackora-documents}
     region: ${AWS_REGION:us-east-1}
 
+azure:
+  servicebus:
+    connection-string: ${AZURE_SERVICE_BUS_CONNECTION_STRING}
+    queue-name: geometris-raw-packets
+
 email:
   enabled: ${EMAIL_ENABLED:true}
   provider: resend

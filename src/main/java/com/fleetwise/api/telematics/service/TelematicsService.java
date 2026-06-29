@@ -183,97 +183,32 @@ public class TelematicsService {
 
     @Transactional
     public TelematicsEventResponse ingestGeometrisPacket(String rawPacket) {
-        try {
-            GeometrisPacket packet = geometrisPacketParser.parse(rawPacket);
-
-            geometrisRawPacketRepository.save(
-                    GeometrisRawPacket.builder()
-                            .serialNumber(packet.serialNumber())
-                            .reasonText(packet.reasonText())
-                            .rawPacket(rawPacket)
-                            .parsedSuccessfully(true)
-                            .build()
-            );
-
-            TelematicsDevice device = telematicsDeviceRepository
-                    .findByProviderAndSerialNumberAndActiveTrue(
-                            TelematicsProvider.GEOMETRIS,
-                            packet.serialNumber()
-                    )
-                    .orElseThrow(() -> new ResourceNotFoundException(
-                            "No active Geometris device mapping found"
-                    ));
-
-            device.setLastSeenAt(packet.recordedAt() != null ? packet.recordedAt() : Instant.now());
-
-            Vehicle vehicle = device.getVehicle();
-
-            TelematicsEvent event = TelematicsEvent.builder()
-                    .vehicle(vehicle)
-                    .recordedAt(packet.recordedAt())
-                    .latitude(packet.latitude())
-                    .longitude(packet.longitude())
-                    .speedMph(packet.speedMph())
-                    .odometerMiles(packet.ecuOdometerMiles() != null
-                            ? packet.ecuOdometerMiles()
-                            : packet.gpsOdometerMiles())
-                    .fuelLevelPercent(packet.fuelLevelPercent())
-                    .engineTempF(celsiusToFahrenheit(packet.coolantTempC()))
-                    .batteryVoltage(packet.batteryVoltage())
-                    .checkEngine(hasActiveDtc(packet.activeDtc()))
-                    .headingDegrees(packet.headingDegrees())
-                    .idleMinutes(secondsToMinutes(packet.totalIdleDurationSeconds()))
-                    .harshBraking("HARDBRAKE".equalsIgnoreCase(packet.reasonText()))
-                    .build();
-
-            TelematicsEvent saved = telematicsEventRepository.save(event);
-
-            if (packet.locationTrail() != null &&
-                    !packet.locationTrail().isBlank()) {
-
-                saveTrailPoints(vehicle, packet, saved);
-            }
-
-            messagingTemplate.convertAndSend(
-                    "/topic/fleets/" + vehicle.getFleet().getId(),
-                    toLiveEvent(saved)
-            );
-
-            generateTelematicsAlerts(vehicle, saved);
-
-            generateDriverBehaviorAlerts(vehicle, packet);
-
-            return toResponse(saved);
-
-        } catch (Exception ex) {
-            geometrisRawPacketRepository.save(
-                    GeometrisRawPacket.builder()
-                            .rawPacket(rawPacket)
-                            .parsedSuccessfully(false)
-                            .errorMessage(ex.getMessage())
-                            .build()
-            );
-
-            throw ex;
-        }
+        TelematicsEvent saved = processGeometrisPacket(rawPacket);
+        return toResponse(saved);
     }
 
     @Transactional
     public TelematicsEvent ingestGeometrisPacketEntity(String rawPacket) {
-        // same logic as ingestGeometrisPacket(...)
-        // but return saved TelematicsEvent instead of DTO
+        return processGeometrisPacket(rawPacket);
+    }
+
+    private TelematicsEvent processGeometrisPacket(String rawPacket) {
         RawTelematicsPacket raw = saveRawPacket(rawPacket);
+
         try {
             GeometrisPacket packet = geometrisPacketParser.parse(rawPacket);
 
-            geometrisRawPacketRepository.save(
-                    GeometrisRawPacket.builder()
-                            .serialNumber(packet.serialNumber())
-                            .reasonText(packet.reasonText())
-                            .rawPacket(rawPacket)
-                            .parsedSuccessfully(true)
-                            .build()
-            );
+            raw.setDeviceSerial(packet.serialNumber());
+            raw.setPacketType(packet.formatCrc());
+
+            GeometrisRawPacket geometrisRawPacket = GeometrisRawPacket.builder()
+                    .serialNumber(packet.serialNumber())
+                    .reasonText(packet.reasonText())
+                    .rawPacket(rawPacket)
+                    .parsedSuccessfully(true)
+                    .build();
+
+            geometrisRawPacketRepository.save(geometrisRawPacket);
 
             TelematicsDevice device = telematicsDeviceRepository
                     .findByProviderAndSerialNumberAndActiveTrue(
@@ -284,33 +219,17 @@ public class TelematicsService {
                             "No active Geometris device mapping found"
                     ));
 
-            device.setLastSeenAt(packet.recordedAt() != null ? packet.recordedAt() : Instant.now());
+            device.setLastSeenAt(
+                    packet.recordedAt() != null ? packet.recordedAt() : Instant.now()
+            );
 
             Vehicle vehicle = device.getVehicle();
 
-            TelematicsEvent event = TelematicsEvent.builder()
-                    .vehicle(vehicle)
-                    .recordedAt(packet.recordedAt())
-                    .latitude(packet.latitude())
-                    .longitude(packet.longitude())
-                    .speedMph(packet.speedMph())
-                    .odometerMiles(packet.ecuOdometerMiles() != null
-                            ? packet.ecuOdometerMiles()
-                            : packet.gpsOdometerMiles())
-                    .fuelLevelPercent(packet.fuelLevelPercent())
-                    .engineTempF(celsiusToFahrenheit(packet.coolantTempC()))
-                    .batteryVoltage(packet.batteryVoltage())
-                    .checkEngine(hasActiveDtc(packet.activeDtc()))
-                    .headingDegrees(packet.headingDegrees())
-                    .idleMinutes(secondsToMinutes(packet.totalIdleDurationSeconds()))
-                    .harshBraking("HARDBRAKE".equalsIgnoreCase(packet.reasonText()))
-                    .build();
+            TelematicsEvent event = toTelematicsEvent(vehicle, packet);
 
             TelematicsEvent saved = telematicsEventRepository.save(event);
 
-            if (packet.locationTrail() != null &&
-                    !packet.locationTrail().isBlank()) {
-
+            if (packet.locationTrail() != null && !packet.locationTrail().isBlank()) {
                 saveTrailPoints(vehicle, packet, saved);
             }
 
@@ -320,7 +239,6 @@ public class TelematicsService {
             );
 
             generateTelematicsAlerts(vehicle, saved);
-
             generateDriverBehaviorAlerts(vehicle, packet);
 
             raw.setProcessed(true);
@@ -343,6 +261,29 @@ public class TelematicsService {
 
             throw ex;
         }
+    }
+
+    private TelematicsEvent toTelematicsEvent(
+            Vehicle vehicle,
+            GeometrisPacket packet
+    ) {
+        return TelematicsEvent.builder()
+                .vehicle(vehicle)
+                .recordedAt(packet.recordedAt())
+                .latitude(packet.latitude())
+                .longitude(packet.longitude())
+                .speedMph(packet.speedMph())
+                .odometerMiles(packet.ecuOdometerMiles() != null
+                        ? packet.ecuOdometerMiles()
+                        : packet.gpsOdometerMiles())
+                .fuelLevelPercent(packet.fuelLevelPercent())
+                .engineTempF(celsiusToFahrenheit(packet.coolantTempC()))
+                .batteryVoltage(packet.batteryVoltage())
+                .checkEngine(hasActiveDtc(packet.activeDtc()))
+                .headingDegrees(packet.headingDegrees())
+                .idleMinutes(secondsToMinutes(packet.totalIdleDurationSeconds()))
+                .harshBraking("HARDBRAKE".equalsIgnoreCase(packet.reasonText()))
+                .build();
     }
 
     @Transactional(readOnly = true)

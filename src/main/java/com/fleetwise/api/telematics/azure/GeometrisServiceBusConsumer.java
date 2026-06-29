@@ -1,0 +1,53 @@
+package com.fleetwise.api.telematics.azure;
+
+import com.azure.messaging.servicebus.ServiceBusClientBuilder;
+import com.azure.messaging.servicebus.ServiceBusProcessorClient;
+import com.fleetwise.api.telematics.service.TelematicsService;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+@Component
+@Slf4j
+public class GeometrisServiceBusConsumer {
+
+    private final ServiceBusProcessorClient processorClient;
+
+    public GeometrisServiceBusConsumer(
+            TelematicsService telematicsService,
+            @Value("${azure.servicebus.connection-string}") String connectionString,
+            @Value("${azure.servicebus.queue-name}") String queueName) {
+
+        this.processorClient =
+                new ServiceBusClientBuilder()
+                        .connectionString(connectionString)
+                        .processor()
+                        .queueName(queueName)
+                        .processMessage(context -> {
+
+                            String rawPacket =
+                                    context.getMessage().getBody().toString();
+
+                            log.info("Received packet: {}", rawPacket);
+
+                            telematicsService.ingestGeometrisPacket(rawPacket);
+
+                        })
+                        .processError(error ->
+                                log.error("Service Bus error",
+                                        error.getException()))
+                        .buildProcessorClient();
+    }
+
+    @PostConstruct
+    public void start() {
+        processorClient.start();
+    }
+
+    @PreDestroy
+    public void stop() {
+        processorClient.close();
+    }
+}
