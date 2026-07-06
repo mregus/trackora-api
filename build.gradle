@@ -56,13 +56,12 @@ dependencies {
     // AWS S3
     implementation platform('software.amazon.awssdk:bom:2.25.60')
     implementation 'software.amazon.awssdk:s3'
-    // Kafka
-    implementation 'org.springframework.kafka:spring-kafka'
-    testImplementation 'org.springframework.kafka:spring-kafka-test'
     // Websocket
     implementation("org.springframework.boot:spring-boot-starter-websocket")
     // Azure Service Bus
     implementation 'com.azure:azure-messaging-servicebus:7.17.9'
+    // Observability
+    implementation 'io.micrometer:micrometer-registry-prometheus'
 }
 
 tasks.named('test') {

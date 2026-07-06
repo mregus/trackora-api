@@ -2,15 +2,21 @@ package com.fleetwise.api.telematics.azure;
 
 import com.azure.messaging.servicebus.ServiceBusClientBuilder;
 import com.azure.messaging.servicebus.ServiceBusProcessorClient;
+import com.fleetwise.api.telematics.observability.TelemetrySource;
 import com.fleetwise.api.telematics.service.TelematicsService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
+@ConditionalOnProperty(
+        name = "azure.servicebus.enabled",
+        havingValue = "true"
+)
 public class GeometrisServiceBusConsumer {
 
     private final ServiceBusProcessorClient processorClient;
@@ -26,18 +32,18 @@ public class GeometrisServiceBusConsumer {
                         .processor()
                         .queueName(queueName)
                         .processMessage(context -> {
+                            String rawPacket = context.getMessage().getBody().toString();
 
-                            String rawPacket =
-                                    context.getMessage().getBody().toString();
+                            log.info("Received Geometris packet from Azure Service Bus: {}", rawPacket);
 
-                            log.info("Received packet: {}", rawPacket);
-
-                            telematicsService.ingestGeometrisPacket(rawPacket);
-
+                            telematicsService.ingestGeometrisPacketEntity(
+                                    rawPacket,
+                                    TelemetrySource.AZURE_SERVICE_BUS
+                            );
                         })
-                        .processError(error ->
-                                log.error("Service Bus error",
-                                        error.getException()))
+                        .processError(error -> {
+                            log.error("Azure Service Bus processing error", error.getException());
+                        })
                         .buildProcessorClient();
     }
 

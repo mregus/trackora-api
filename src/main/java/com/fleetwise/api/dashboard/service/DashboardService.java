@@ -16,6 +16,11 @@ import com.fleetwise.api.fuel.repository.FuelLogRepository;
 import com.fleetwise.api.maintenance.entity.Maintenance;
 import com.fleetwise.api.maintenance.entity.MaintenanceStatus;
 import com.fleetwise.api.maintenance.repository.MaintenanceRepository;
+import com.fleetwise.api.telematics.entity.TelematicsEvent;
+import com.fleetwise.api.telematics.entity.VehicleCurrentState;
+import com.fleetwise.api.telematics.repository.RawTelematicsPacketRepository;
+import com.fleetwise.api.telematics.repository.TelematicsEventRepository;
+import com.fleetwise.api.telematics.repository.VehicleCurrentStateRepository;
 import com.fleetwise.api.vehicle.entity.VehicleStatus;
 import com.fleetwise.api.vehicle.repository.VehicleRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +28,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -39,6 +47,9 @@ public class DashboardService {
     private final FuelLogRepository fuelLogRepository;
     private final AiInsightRepository aiInsightRepository;
     private final FleetAccessService fleetAccessService;
+    private final VehicleCurrentStateRepository vehicleCurrentStateRepository;
+    private final RawTelematicsPacketRepository rawTelematicsPacketRepository;
+    private final TelematicsEventRepository telematicsEventRepository;
 
     @Transactional(readOnly = true)
     public List<FleetRecommendationResponse> getRecommendations(
@@ -60,7 +71,7 @@ public class DashboardService {
 
     @Transactional(readOnly = true)
     public DashboardSummaryResponse getSummary(UUID fleetId, UUID ownerId) {
-        Fleet fleet = fleetRepository.findByIdAndOwnerId(fleetId, ownerId)
+        Fleet fleet = fleetRepository.findById(fleetId)
                 .orElseThrow(() -> new ResourceNotFoundException("Fleet not found"));
 
         fleetAccessService.validateAccess(fleetId, ownerId);
@@ -96,6 +107,40 @@ public class DashboardService {
         int fleetHealthScore =
                 calculateFleetHealthScore(healthBreakdown);
 
+        List<VehicleCurrentState> states =
+                vehicleCurrentStateRepository.findByVehicleFleetId(fleetId);
+
+        int onlineVehicles = Math.toIntExact(states.stream()
+                .filter(state -> "ONLINE".equals(status(state.getLastSeenAt())))
+                .count());
+
+        int staleVehicles = Math.toIntExact(states.stream()
+                .filter(state -> "STALE".equals(status(state.getLastSeenAt())))
+                .count());
+
+        int offlineVehicles = Math.toIntExact(states.stream()
+                .filter(state -> "OFFLINE".equals(status(state.getLastSeenAt())))
+                .count());
+
+        Instant startOfDay = LocalDate.now(ZoneOffset.UTC)
+                .atStartOfDay()
+                .toInstant(ZoneOffset.UTC);
+
+        int packetsToday =
+                Math.toIntExact(rawTelematicsPacketRepository.countByReceivedAtGreaterThanEqual(startOfDay));
+
+        Instant endOfDay = startOfDay.plus(1, ChronoUnit.DAYS);
+
+        List<TelematicsEvent> todayPoints =
+                telematicsEventRepository
+                        .findByVehicleFleetIdAndRecordedAtBetweenOrderByVehicleIdAscRecordedAtAsc(
+                                fleetId,
+                                startOfDay,
+                                endOfDay
+                        );
+
+        int tripsToday = countTrips(todayPoints, 15);
+
         return new DashboardSummaryResponse(
                 fleet.getId(),
                 fleet.getName(),
@@ -108,7 +153,12 @@ public class DashboardService {
                 monthlyFuelCost,
                 latestAiInsight,
                 fleetHealthScore,
-                healthBreakdown
+                healthBreakdown,
+                onlineVehicles,
+                staleVehicles,
+                offlineVehicles,
+                packetsToday,
+                tripsToday
         );
     }
 
@@ -275,5 +325,70 @@ public class DashboardService {
                     "WARNING"
             ));
         }
+    }
+
+    private String status(Instant lastSeenAt) {
+        if (lastSeenAt == null) {
+            return "OFFLINE";
+        }
+
+        long minutes = ChronoUnit.MINUTES.between(lastSeenAt, Instant.now());
+
+        if (minutes <= 5) {
+            return "ONLINE";
+        }
+
+        if (minutes <= 15) {
+            return "STALE";
+        }
+
+        return "OFFLINE";
+    }
+
+    private int countTrips(
+            List<TelematicsEvent> points,
+            int gapMinutes
+    ) {
+        if (points.isEmpty()) {
+            return 0;
+        }
+
+        long trips = 0;
+        UUID currentVehicleId = null;
+        Instant previousTime = null;
+        int currentTripPointCount = 0;
+
+        for (TelematicsEvent point : points) {
+            if (point.getRecordedAt() == null || point.getVehicle() == null) {
+                continue;
+            }
+
+            UUID vehicleId = point.getVehicle().getId();
+
+            boolean newVehicle =
+                    currentVehicleId == null || !currentVehicleId.equals(vehicleId);
+
+            boolean gapExceeded =
+                    previousTime != null
+                            && ChronoUnit.MINUTES.between(previousTime, point.getRecordedAt()) >= gapMinutes;
+
+            if (newVehicle || gapExceeded) {
+                if (currentTripPointCount >= 2) {
+                    trips++;
+                }
+
+                currentVehicleId = vehicleId;
+                currentTripPointCount = 0;
+            }
+
+            currentTripPointCount++;
+            previousTime = point.getRecordedAt();
+        }
+
+        if (currentTripPointCount >= 2) {
+            trips++;
+        }
+
+        return Math.toIntExact(trips);
     }
 }

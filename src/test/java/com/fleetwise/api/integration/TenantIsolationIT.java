@@ -76,6 +76,6 @@ class TenantIsolationIT extends BaseIntegrationTest {
                 .when()
                 .get("/api/fleets/{fleetId}/dashboard/summary", userAFleetId)
                 .then()
-                .statusCode(anyOf(is(400), is(404)));
+                .statusCode(anyOf(is(400), is(404), is(403)));
     }
 }

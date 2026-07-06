@@ -6,6 +6,7 @@ import java.util.UUID;
 
 public record FleetTelematicsLocationResponse(
         UUID vehicleId,
+        String status,
         String label,
         String licensePlate,
         Double latitude,

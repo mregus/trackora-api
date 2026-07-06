@@ -4,16 +4,6 @@ server:
 spring:
   application:
     name: fleetwise-api
-  kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    consumer:
-      group-id: trackora-telematics
-      auto-offset-reset: earliest
-    producer:
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-    listener:
-      missing-topics-fatal: false
   datasource:
     url: jdbc:postgresql://localhost:5432/fleetwise
     username: fleetwise
@@ -39,8 +29,6 @@ spring:
       max-request-size: 10MB
 
 telematics:
-  kafka:
-    enabled: ${TELEMATICS_KAFKA_ENABLED:false}
   geometris:
     api-key: ${GEOMETRIS_API_KEY:test-geometris-key}
 
@@ -52,7 +40,13 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      tags:
+        application: trackora-api
 
 openai:
   enabled: ${OPENAI_ENABLED:false}
@@ -65,6 +59,7 @@ fleetwise:
 
 azure:
   servicebus:
+    enabled: ${AZURE_SERVICE_BUS_ENABLED:false}
     connection-string: ${AZURE_SERVICE_BUS_CONNECTION_STRING}
     queue-name: geometris-raw-packets
 

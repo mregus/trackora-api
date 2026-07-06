@@ -4,18 +4,6 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:fleetwise}
     password: ${SPRING_DATASOURCE_PASSWORD:fleetwise}
     driver-class-name: org.postgresql.Driver
-
-  kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    consumer:
-      group-id: trackora-telematics
-      auto-offset-reset: earliest
-    producer:
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-    listener:
-      missing-topics-fatal: false
-
   jpa:
     hibernate:
       ddl-auto: validate
@@ -37,8 +25,6 @@ openai:
   model: gpt-4o-mini
 
 telematics:
-  kafka:
-    enabled: ${TELEMATICS_KAFKA_ENABLED:false}
   geometris:
     api-key: ${GEOMETRIS_API_KEY:test-geometris-key}
 
@@ -52,6 +38,24 @@ email:
 jwt:
   secret: ${JWT_SECRET:trackora-test-jwt-secret-must-be-at-least-32-characters-long-123456}
   expiration-minutes: 120
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      tags:
+        application: trackora-api
+
+azure:
+  servicebus:
+    enabled: ${AZURE_SERVICE_BUS_ENABLED:false}
+    connection-string: ${AZURE_SERVICE_BUS_CONNECTION_STRING:dummy-az-service-bus}
+    queue-name: geometris-raw-packets
 
   # reduce log noise during test runs
   main:

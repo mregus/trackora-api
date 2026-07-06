@@ -4,7 +4,6 @@ import com.fleetwise.api.auth.security.UserPrincipal;
 import com.fleetwise.api.common.exception.ForbiddenException;
 import com.fleetwise.api.telematics.dto.*;
 import com.fleetwise.api.telematics.geometris.GeometrisRawPacketResponse;
-import com.fleetwise.api.telematics.kafka.GeometrisPacketProducer;
 import com.fleetwise.api.telematics.service.TelematicsService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +25,6 @@ public class TelematicsController {
     private String geometrisApiKey;
 
     private final TelematicsService telematicsService;
-    private final Optional<GeometrisPacketProducer> geometrisPacketProducer;
 
     @PostMapping("/api/telematics/events")
     public TelematicsEventResponse createEvent(
@@ -70,11 +68,6 @@ public class TelematicsController {
     ) {
         if (!geometrisApiKey.equals(apiKey)) {
             throw new ForbiddenException("Invalid Geometris API key");
-        }
-
-        if (geometrisPacketProducer.isPresent()) {
-            geometrisPacketProducer.get().publish(rawPacket);
-            return Map.of("message", "Packet accepted for processing");
         }
 
         telematicsService.ingestGeometrisPacket(rawPacket);

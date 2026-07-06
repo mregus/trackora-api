@@ -10,16 +10,18 @@ import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.notification.entity.NotificationType;
 import com.fleetwise.api.notification.service.NotificationService;
 import com.fleetwise.api.telematics.dto.*;
-import com.fleetwise.api.telematics.entity.RawTelematicsPacket;
-import com.fleetwise.api.telematics.entity.TelematicsDevice;
-import com.fleetwise.api.telematics.entity.TelematicsEvent;
-import com.fleetwise.api.telematics.entity.TelematicsProvider;
+import com.fleetwise.api.telematics.entity.*;
 import com.fleetwise.api.telematics.geometris.*;
+import com.fleetwise.api.telematics.observability.TelematicsMetrics;
+import com.fleetwise.api.telematics.observability.TelemetrySource;
 import com.fleetwise.api.telematics.repository.RawTelematicsPacketRepository;
 import com.fleetwise.api.telematics.repository.TelematicsDeviceRepository;
 import com.fleetwise.api.telematics.repository.TelematicsEventRepository;
+import com.fleetwise.api.telematics.repository.VehicleCurrentStateRepository;
 import com.fleetwise.api.vehicle.entity.Vehicle;
 import com.fleetwise.api.vehicle.repository.VehicleRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,6 +53,8 @@ public class TelematicsService {
     private final GeometrisRawPacketRepository geometrisRawPacketRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final RawTelematicsPacketRepository rawTelematicsPacketRepository;
+    private final TelematicsMetrics telematicsMetrics;
+    private final VehicleCurrentStateRepository vehicleCurrentStateRepository;
 
     @Transactional
     public TelematicsEventResponse createEvent(
@@ -78,6 +82,8 @@ public class TelematicsService {
                 .build();
 
         TelematicsEvent saved = telematicsEventRepository.save(event);
+
+        updateVehicleCurrentState(vehicle, saved);
 
         generateTelematicsAlerts(vehicle, saved);
 
@@ -183,16 +189,18 @@ public class TelematicsService {
 
     @Transactional
     public TelematicsEventResponse ingestGeometrisPacket(String rawPacket) {
-        TelematicsEvent saved = processGeometrisPacket(rawPacket);
+        TelematicsEvent saved = processGeometrisPacket(rawPacket, TelemetrySource.HTTP);
         return toResponse(saved);
     }
 
     @Transactional
-    public TelematicsEvent ingestGeometrisPacketEntity(String rawPacket) {
-        return processGeometrisPacket(rawPacket);
+    public TelematicsEvent ingestGeometrisPacketEntity(String rawPacket, TelemetrySource source) {
+        return processGeometrisPacket(rawPacket, source);
     }
 
-    private TelematicsEvent processGeometrisPacket(String rawPacket) {
+    private TelematicsEvent processGeometrisPacket(String rawPacket, TelemetrySource source) {
+        telematicsMetrics.packetReceived(source);
+        Timer.Sample sample = telematicsMetrics.startTimer();
         RawTelematicsPacket raw = saveRawPacket(rawPacket);
 
         try {
@@ -229,6 +237,8 @@ public class TelematicsService {
 
             TelematicsEvent saved = telematicsEventRepository.save(event);
 
+            updateVehicleCurrentState(vehicle, saved);
+
             if (packet.locationTrail() != null && !packet.locationTrail().isBlank()) {
                 saveTrailPoints(vehicle, packet, saved);
             }
@@ -244,9 +254,13 @@ public class TelematicsService {
             raw.setProcessed(true);
             rawTelematicsPacketRepository.save(raw);
 
+            telematicsMetrics.packetProcessed(source);
+
             return saved;
 
         } catch (Exception ex) {
+            telematicsMetrics.packetFailed(source);
+
             geometrisRawPacketRepository.save(
                     GeometrisRawPacket.builder()
                             .rawPacket(rawPacket)
@@ -260,7 +274,34 @@ public class TelematicsService {
             rawTelematicsPacketRepository.save(raw);
 
             throw ex;
+        } finally {
+            telematicsMetrics.stopTimer(sample, source);
         }
+    }
+
+    private void updateVehicleCurrentState(
+            Vehicle vehicle,
+            TelematicsEvent event
+    ) {
+        VehicleCurrentState state = vehicleCurrentStateRepository
+                .findById(vehicle.getId())
+                .orElseGet(() -> {
+                    VehicleCurrentState newState = new VehicleCurrentState();
+                    newState.setVehicle(vehicle);
+                    return newState;
+                });
+
+        state.setLatitude(event.getLatitude());
+        state.setLongitude(event.getLongitude());
+        state.setSpeedMph(event.getSpeedMph());
+        state.setFuelLevelPercent(event.getFuelLevelPercent());
+        state.setHeadingDegrees(event.getHeadingDegrees());
+        state.setCheckEngine(event.isCheckEngine());
+        state.setLastSeenAt(
+                event.getRecordedAt() != null ? event.getRecordedAt() : Instant.now()
+        );
+
+        vehicleCurrentStateRepository.save(state);
     }
 
     private TelematicsEvent toTelematicsEvent(
@@ -293,23 +334,24 @@ public class TelematicsService {
     ) {
         fleetAccessService.validateAccess(fleetId, userId);
 
-        return telematicsEventRepository.findLatestByFleetId(fleetId)
+        return vehicleCurrentStateRepository.findByVehicleFleetId(fleetId)
                 .stream()
-                .filter(event -> event.getLatitude() != null && event.getLongitude() != null)
-                .map(event -> {
-                    Vehicle vehicle = event.getVehicle();
+                .filter(state -> state.getLatitude() != null && state.getLongitude() != null)
+                .map(state -> {
+                    Vehicle vehicle = state.getVehicle();
 
                     return new FleetTelematicsLocationResponse(
                             vehicle.getId(),
+                            getVehicleStatus(state.getLastSeenAt()),
                             "%s %s".formatted(vehicle.getMake(), vehicle.getModel()),
                             vehicle.getLicensePlate(),
-                            event.getLatitude(),
-                            event.getLongitude(),
-                            event.getSpeedMph(),
-                            event.getFuelLevelPercent(),
-                            event.isCheckEngine(),
-                            event.getHeadingDegrees(),
-                            event.getRecordedAt()
+                            state.getLatitude(),
+                            state.getLongitude(),
+                            state.getSpeedMph(),
+                            state.getFuelLevelPercent(),
+                            state.isCheckEngine(),
+                            state.getHeadingDegrees(),
+                            state.getLastSeenAt()
                     );
                 })
                 .toList();
@@ -779,5 +821,23 @@ public class TelematicsService {
                             .formatted(vehicle.getMake(), vehicle.getModel())
             );
         }
+    }
+
+    private String getVehicleStatus(Instant lastSeenAt) {
+        if (lastSeenAt == null) {
+            return "OFFLINE";
+        }
+
+        long minutes = ChronoUnit.MINUTES.between(lastSeenAt, Instant.now());
+
+        if (minutes <= 5) {
+            return "ONLINE";
+        }
+
+        if (minutes <= 15) {
+            return "STALE";
+        }
+
+        return "OFFLINE";
     }
 }

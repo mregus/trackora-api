@@ -14,6 +14,12 @@ public interface TelematicsEventRepository
 
     Optional<TelematicsEvent> findTopByVehicleIdOrderByRecordedAtDesc(UUID vehicleId);
 
+    List<TelematicsEvent> findByVehicleFleetIdAndRecordedAtBetweenOrderByVehicleIdAscRecordedAtAsc(
+            UUID fleetId,
+            Instant start,
+            Instant end
+    );
+
     @Query("""
     select t
     from TelematicsEvent t

@@ -17,5 +17,11 @@ public record DashboardSummaryResponse(
         BigDecimal monthlyFuelCost,
         String latestAiInsight,
         Integer fleetHealthScore,
-        FleetHealthBreakdown fleetHealthBreakdown
+        FleetHealthBreakdown fleetHealthBreakdown,
+
+        int onlineVehicles,
+        int staleVehicles,
+        int offlineVehicles,
+        int packetsToday,
+        int tripsToday
 ) {}
