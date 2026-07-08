@@ -2,6 +2,7 @@ package com.fleetwise.api.telematics.azure;
 
 import com.azure.messaging.servicebus.ServiceBusClientBuilder;
 import com.azure.messaging.servicebus.ServiceBusProcessorClient;
+import com.fleetwise.api.telematics.observability.ServiceBusMetrics;
 import com.fleetwise.api.telematics.observability.TelemetrySource;
 import com.fleetwise.api.telematics.service.TelematicsService;
 import jakarta.annotation.PostConstruct;
@@ -24,7 +25,7 @@ public class GeometrisServiceBusConsumer {
     public GeometrisServiceBusConsumer(
             TelematicsService telematicsService,
             @Value("${azure.servicebus.connection-string}") String connectionString,
-            @Value("${azure.servicebus.queue-name}") String queueName) {
+            @Value("${azure.servicebus.queue-name}") String queueName, ServiceBusMetrics serviceBusMetrics) {
 
         this.processorClient =
                 new ServiceBusClientBuilder()
@@ -36,10 +37,28 @@ public class GeometrisServiceBusConsumer {
 
                             log.info("Received Geometris packet from Azure Service Bus: {}", rawPacket);
 
-                            telematicsService.ingestGeometrisPacketEntity(
-                                    rawPacket,
-                                    TelemetrySource.AZURE_SERVICE_BUS
+                            serviceBusMetrics.received();
+
+                            log.info(
+                                    "Service Bus message received messageId={}, deliveryCount={}, sequenceNumber={}, enqueuedTime={}",
+                                    context.getMessage().getMessageId(),
+                                    context.getMessage().getDeliveryCount(),
+                                    context.getMessage().getSequenceNumber(),
+                                    context.getMessage().getEnqueuedTime()
                             );
+
+                            try {
+                                telematicsService.ingestGeometrisPacketEntity(
+                                        rawPacket,
+                                        TelemetrySource.AZURE_SERVICE_BUS
+                                );
+
+                                serviceBusMetrics.completed();
+
+                            } catch (Exception ex) {
+                                serviceBusMetrics.failed();
+                                throw ex;
+                            }
                         })
                         .processError(error -> {
                             log.error("Azure Service Bus processing error", error.getException());

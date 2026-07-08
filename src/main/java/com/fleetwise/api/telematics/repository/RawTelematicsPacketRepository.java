@@ -4,10 +4,13 @@ import com.fleetwise.api.telematics.entity.RawTelematicsPacket;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface RawTelematicsPacketRepository
         extends JpaRepository<RawTelematicsPacket, UUID> {
 
     long countByReceivedAtGreaterThanEqual(Instant start);
+
+    Optional<RawTelematicsPacket> findTopByOrderByReceivedAtDesc();
 }

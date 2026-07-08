@@ -16,5 +16,7 @@ public enum AlertType {
     HARSH_BRAKING,
     HARSH_ACCELERATION,
     HARSH_TURN,
-    HARD_STOP
+    HARD_STOP,
+    DEVICE_STALE,
+    DEVICE_OFFLINE
 }

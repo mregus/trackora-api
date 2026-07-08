@@ -22,8 +22,21 @@ public class TelematicsMetrics {
 
     public void packetProcessed(TelemetrySource source) {
         registry.counter(
-                "trackora.telematics.packets.processed",
-                "source", source.name()
+                "trackora.telematics.packets",
+                "source", source.name(),
+                "outcome", "processed"
+        ).increment();
+    }
+
+    public void packetFailed(
+            TelemetrySource source,
+            TelemetryFailureReason reason
+    ) {
+        registry.counter(
+                "trackora.telematics.packets",
+                "source", source.name(),
+                "outcome", "failed",
+                "reason", reason.name()
         ).increment();
     }
 

@@ -18,6 +18,11 @@ public interface AlertRepository extends JpaRepository<Alert, UUID> {
             AlertType type
     );
 
+    List<Alert> findByVehicleIdAndTypeInAndResolvedFalse(
+            UUID vehicleId,
+            List<AlertType> types
+    );
+
     @Query("""
     select a
     from Alert a

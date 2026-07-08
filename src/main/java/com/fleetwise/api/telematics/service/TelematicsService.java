@@ -13,6 +13,7 @@ import com.fleetwise.api.telematics.dto.*;
 import com.fleetwise.api.telematics.entity.*;
 import com.fleetwise.api.telematics.geometris.*;
 import com.fleetwise.api.telematics.observability.TelematicsMetrics;
+import com.fleetwise.api.telematics.observability.TelemetryFailureReason;
 import com.fleetwise.api.telematics.observability.TelemetrySource;
 import com.fleetwise.api.telematics.repository.RawTelematicsPacketRepository;
 import com.fleetwise.api.telematics.repository.TelematicsDeviceRepository;
@@ -25,6 +26,7 @@ import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -160,6 +162,15 @@ public class TelematicsService {
                 .toList();
     }
 
+    public void createSystemAlert(
+            Vehicle vehicle,
+            AlertType type,
+            AlertSeverity severity,
+            String message
+    ) {
+        createAlert(vehicle, type, severity, message);
+    }
+
     private GeometrisRawPacketResponse toRawPacketResponse(GeometrisRawPacket packet) {
         return new GeometrisRawPacketResponse(
                 packet.getId(),
@@ -201,6 +212,7 @@ public class TelematicsService {
     private TelematicsEvent processGeometrisPacket(String rawPacket, TelemetrySource source) {
         telematicsMetrics.packetReceived(source);
         Timer.Sample sample = telematicsMetrics.startTimer();
+        long startMs = System.currentTimeMillis();
         RawTelematicsPacket raw = saveRawPacket(rawPacket);
 
         try {
@@ -239,6 +251,9 @@ public class TelematicsService {
 
             updateVehicleCurrentState(vehicle, saved);
 
+            // Device reported again, so resolve stale/offline alerts
+            resolveOpenDeviceAlerts(vehicle);
+
             if (packet.locationTrail() != null && !packet.locationTrail().isBlank()) {
                 saveTrailPoints(vehicle, packet, saved);
             }
@@ -256,10 +271,22 @@ public class TelematicsService {
 
             telematicsMetrics.packetProcessed(source);
 
+            logger.info(
+                    "Telemetry packet processed source={} serial={} format={} reason={} vehicleId={} fleetId={} recordedAt={} processingMs={}",
+                    source,
+                    packet.serialNumber(),
+                    packet.formatCrc(),
+                    packet.reasonText(),
+                    vehicle.getId(),
+                    vehicle.getFleet().getId(),
+                    packet.recordedAt(),
+                    System.currentTimeMillis() - startMs
+            );
+
             return saved;
 
         } catch (Exception ex) {
-            telematicsMetrics.packetFailed(source);
+            telematicsMetrics.packetFailed(source, classifyFailure(ex));
 
             geometrisRawPacketRepository.save(
                     GeometrisRawPacket.builder()
@@ -272,6 +299,14 @@ public class TelematicsService {
             raw.setProcessed(false);
             raw.setErrorMessage(ex.getMessage());
             rawTelematicsPacketRepository.save(raw);
+
+            logger.warn(
+                    "Telemetry packet failed source={} failureReason={} processingMs={} error={}",
+                    source,
+                    classifyFailure(ex),
+                    System.currentTimeMillis() - startMs,
+                    ex.getMessage()
+            );
 
             throw ex;
         } finally {
@@ -839,5 +874,35 @@ public class TelematicsService {
         }
 
         return "OFFLINE";
+    }
+
+    private void resolveOpenDeviceAlerts(Vehicle vehicle) {
+        alertRepository
+                .findByVehicleIdAndTypeInAndResolvedFalse(
+                        vehicle.getId(),
+                        List.of(AlertType.DEVICE_STALE, AlertType.DEVICE_OFFLINE)
+                )
+                .forEach(alert -> {
+                    alert.setResolved(true);
+                    alert.setResolvedAt(Instant.now());
+                    alertRepository.save(alert);
+                });
+    }
+
+    private TelemetryFailureReason classifyFailure(Exception ex) {
+        if (ex instanceof IllegalArgumentException ||
+                ex instanceof NumberFormatException) {
+            return TelemetryFailureReason.PARSE_ERROR;
+        }
+
+        if (ex instanceof ResourceNotFoundException) {
+            return TelemetryFailureReason.DEVICE_NOT_FOUND;
+        }
+
+        if (ex instanceof DataAccessException) {
+            return TelemetryFailureReason.DATABASE_ERROR;
+        }
+
+        return TelemetryFailureReason.UNKNOWN;
     }
 }
