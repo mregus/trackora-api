@@ -70,11 +70,25 @@ public class DashboardService {
     }
 
     @Transactional(readOnly = true)
-    public DashboardSummaryResponse getSummary(UUID fleetId, UUID ownerId) {
+    public DashboardSummaryResponse getSummary(
+            UUID fleetId,
+            UUID ownerId
+    ) {
+        fleetAccessService.validateAccess(fleetId, ownerId);
+
+        return buildSummary(fleetId);
+    }
+
+    @Transactional(readOnly = true)
+    public DashboardSummaryResponse getSystemSummary(UUID fleetId) {
+        return buildSummary(fleetId);
+    }
+
+    private DashboardSummaryResponse buildSummary(UUID fleetId) {
         Fleet fleet = fleetRepository.findById(fleetId)
                 .orElseThrow(() -> new ResourceNotFoundException("Fleet not found"));
 
-        fleetAccessService.validateAccess(fleetId, ownerId);
+//        fleetAccessService.validateAccess(fleetId, ownerId);
 
         LocalDate startOfMonth = LocalDate.now().withDayOfMonth(1);
 
@@ -84,12 +98,6 @@ public class DashboardService {
         long outOfServiceVehicles = vehicleRepository.countByFleetIdAndStatus(fleetId, VehicleStatus.OUT_OF_SERVICE);
 
         long openAlerts = alertRepository.countByFleetIdAndResolvedFalse(fleetId);
-
-//        BigDecimal monthlyMaintenanceCost =
-//                maintenanceRepository.sumCostByFleetIdSince(fleetId, startOfMonth);
-//
-//        BigDecimal monthlyFuelCost =
-//                fuelLogRepository.sumCostByFleetIdSince(fleetId, startOfMonth);
 
         BigDecimal monthlyMaintenanceCost =
                 maintenanceRepository.sumMaintenanceCostByFleetId(fleetId);

@@ -6,9 +6,11 @@ import com.fleetwise.api.alert.entity.AlertSeverity;
 import com.fleetwise.api.alert.entity.AlertType;
 import com.fleetwise.api.alert.repository.AlertRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
+import com.fleetwise.api.dashboard.DashboardRealtimePublisher;
 import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.notification.entity.NotificationType;
 import com.fleetwise.api.notification.service.NotificationService;
+import com.fleetwise.api.safety.service.SafetyScoreUpdaterService;
 import com.fleetwise.api.telematics.dto.*;
 import com.fleetwise.api.telematics.entity.*;
 import com.fleetwise.api.telematics.geometris.*;
@@ -57,6 +59,8 @@ public class TelematicsService {
     private final RawTelematicsPacketRepository rawTelematicsPacketRepository;
     private final TelematicsMetrics telematicsMetrics;
     private final VehicleCurrentStateRepository vehicleCurrentStateRepository;
+    private final DashboardRealtimePublisher dashboardRealtimePublisher;
+    private final SafetyScoreUpdaterService safetyScoreUpdaterService;
 
     @Transactional
     public TelematicsEventResponse createEvent(
@@ -83,7 +87,10 @@ public class TelematicsService {
                 .idleMinutes(request.idleMinutes() != null ? request.idleMinutes() : 0)
                 .build();
 
-        TelematicsEvent saved = telematicsEventRepository.save(event);
+        TelematicsEvent saved = telematicsMetrics.record(
+                telematicsMetrics.getEventSaveTimer(),
+                () -> telematicsEventRepository.save(event)
+        );
 
         updateVehicleCurrentState(vehicle, saved);
 
@@ -216,7 +223,16 @@ public class TelematicsService {
         RawTelematicsPacket raw = saveRawPacket(rawPacket);
 
         try {
-            GeometrisPacket packet = geometrisPacketParser.parse(rawPacket);
+            GeometrisPacket packet = telematicsMetrics.record(
+                    telematicsMetrics.getParseTimer(),
+                    () -> geometrisPacketParser.parse(rawPacket)
+            );
+
+            telematicsMetrics.packetType(
+                    source,
+                    packet.formatCrc(),
+                    packet.reasonText()
+            );
 
             raw.setDeviceSerial(packet.serialNumber());
             raw.setPacketType(packet.formatCrc());
@@ -247,7 +263,10 @@ public class TelematicsService {
 
             TelematicsEvent event = toTelematicsEvent(vehicle, packet);
 
-            TelematicsEvent saved = telematicsEventRepository.save(event);
+            TelematicsEvent saved = telematicsMetrics.record(
+                    telematicsMetrics.getEventSaveTimer(),
+                    () -> telematicsEventRepository.save(event)
+            );
 
             updateVehicleCurrentState(vehicle, saved);
 
@@ -265,6 +284,11 @@ public class TelematicsService {
 
             generateTelematicsAlerts(vehicle, saved);
             generateDriverBehaviorAlerts(vehicle, packet);
+
+            safetyScoreUpdaterService.updateFromEvent(vehicle, saved, packet.reasonText());
+
+            // Publish live dashboard update
+            dashboardRealtimePublisher.publish(vehicle.getFleet().getId());
 
             raw.setProcessed(true);
             rawTelematicsPacketRepository.save(raw);
@@ -704,7 +728,10 @@ public class TelematicsService {
 //                            .ignitionOn(latestEvent.isIgnitionOn())
                             .build();
 
-            telematicsEventRepository.save(trailEvent);
+            TelematicsEvent saved = telematicsMetrics.record(
+                    telematicsMetrics.getEventSaveTimer(),
+                    () -> telematicsEventRepository.save(trailEvent)
+            );
         }
     }
 

@@ -12,6 +12,20 @@ import java.util.UUID;
 public interface TelematicsEventRepository
         extends JpaRepository<TelematicsEvent, UUID> {
 
+    @Query("""
+    select e
+    from TelematicsEvent e
+    join fetch e.vehicle v
+    where v.fleet.id = :fleetId
+      and e.recordedAt between :start and :end
+    order by v.id, e.recordedAt
+    """)
+    List<TelematicsEvent> findByVehicleFleetIdAndRecordedAtBetween(
+            UUID fleetId,
+            Instant start,
+            Instant end
+    );
+
     Optional<TelematicsEvent> findTopByVehicleIdOrderByRecordedAtDesc(UUID vehicleId);
 
     List<TelematicsEvent> findByVehicleFleetIdAndRecordedAtBetweenOrderByVehicleIdAscRecordedAtAsc(

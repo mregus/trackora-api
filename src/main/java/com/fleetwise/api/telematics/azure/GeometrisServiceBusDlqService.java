@@ -44,6 +44,10 @@ public class GeometrisServiceBusDlqService {
                 .buildClient();
     }
 
+    public long getDeadLetterCount() {
+        return peekDeadLetters(1000).size();
+    }
+
     public List<ServiceBusReceivedMessage> peekDeadLetters(int maxMessages) {
         IterableStream<ServiceBusReceivedMessage> messages =
                 dlqReceiver.peekMessages(maxMessages);
