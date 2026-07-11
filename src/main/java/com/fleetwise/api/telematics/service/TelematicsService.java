@@ -11,6 +11,7 @@ import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.notification.entity.NotificationType;
 import com.fleetwise.api.notification.service.NotificationService;
 import com.fleetwise.api.safety.service.SafetyScoreUpdaterService;
+import com.fleetwise.api.safety.websocket.SafetyScoreRealtimePublisher;
 import com.fleetwise.api.telematics.dto.*;
 import com.fleetwise.api.telematics.entity.*;
 import com.fleetwise.api.telematics.geometris.*;
@@ -61,6 +62,7 @@ public class TelematicsService {
     private final VehicleCurrentStateRepository vehicleCurrentStateRepository;
     private final DashboardRealtimePublisher dashboardRealtimePublisher;
     private final SafetyScoreUpdaterService safetyScoreUpdaterService;
+    private final SafetyScoreRealtimePublisher safetyScoreRealtimePublisher;
 
     @Transactional
     public TelematicsEventResponse createEvent(
@@ -286,6 +288,9 @@ public class TelematicsService {
             generateDriverBehaviorAlerts(vehicle, packet);
 
             safetyScoreUpdaterService.updateFromEvent(vehicle, saved, packet.reasonText());
+
+            // Publish live safety score dashboard update
+            safetyScoreRealtimePublisher.publish(vehicle.getFleet().getId());
 
             // Publish live dashboard update
             dashboardRealtimePublisher.publish(vehicle.getFleet().getId());

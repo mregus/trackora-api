@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 public class SafetyScoreUpdaterService {
 
     private final VehicleSafetyScoreRepository repository;
+    private final SafetyScoreHistoryService safetyScoreHistoryService;
 
     public void updateFromEvent(
             Vehicle vehicle,
@@ -62,7 +63,9 @@ public class SafetyScoreUpdaterService {
 
         score.setScore(calculateScore(score));
 
-        repository.save(score);
+        VehicleSafetyScore saved = repository.save(score);
+
+        safetyScoreHistoryService.saveDailySnapshot(saved);
     }
 
     private int calculateScore(VehicleSafetyScore score) {
