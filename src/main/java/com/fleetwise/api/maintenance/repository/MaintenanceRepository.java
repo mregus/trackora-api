@@ -93,4 +93,15 @@ public interface MaintenanceRepository extends JpaRepository<Maintenance, UUID> 
             @Param("ownerId") UUID ownerId,
             @Param("query") String query
     );
+
+    @Query("""
+    select maintenance
+    from Maintenance maintenance
+    join fetch maintenance.vehicle vehicle
+    where vehicle.fleet.id = :fleetId
+    order by maintenance.serviceDate asc
+    """)
+    List<Maintenance> findFleetMaintenanceForCopilot(
+            @Param("fleetId") UUID fleetId
+    );
 }

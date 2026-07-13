@@ -5,6 +5,7 @@ import com.fleetwise.api.common.exception.ForbiddenException;
 import com.fleetwise.api.telematics.dto.*;
 import com.fleetwise.api.telematics.geometris.GeometrisRawPacketResponse;
 import com.fleetwise.api.telematics.service.TelematicsService;
+import com.fleetwise.api.telematics.service.TripQueryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,6 +26,7 @@ public class TelematicsController {
     private String geometrisApiKey;
 
     private final TelematicsService telematicsService;
+    private final TripQueryService tripQueryService;
 
     @PostMapping("/api/telematics/events")
     public TelematicsEventResponse createEvent(
@@ -100,6 +102,27 @@ public class TelematicsController {
         );
     }
 
+//    @GetMapping("/api/vehicles/{vehicleId}/telematics/trips")
+//    public PageResponse<TelematicsTripResponse> getVehicleTrips(
+//            @AuthenticationPrincipal UserPrincipal principal,
+//            @PathVariable UUID vehicleId,
+//            @RequestParam Instant start,
+//            @RequestParam Instant end,
+//            @RequestParam(defaultValue = "15") int gapMinutes,
+//            @RequestParam(defaultValue = "0") int page,
+//            @RequestParam(defaultValue = "10") int size
+//    ) {
+//        return telematicsService.getVehicleTrips(
+//                principal.getId(),
+//                vehicleId,
+//                start,
+//                end,
+//                gapMinutes,
+//                page,
+//                size
+//        );
+//    }
+
     @GetMapping("/api/vehicles/{vehicleId}/telematics/trips")
     public PageResponse<TelematicsTripResponse> getVehicleTrips(
             @AuthenticationPrincipal UserPrincipal principal,
@@ -110,7 +133,7 @@ public class TelematicsController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        return telematicsService.getVehicleTrips(
+        return tripQueryService.getVehicleTrips(
                 principal.getId(),
                 vehicleId,
                 start,

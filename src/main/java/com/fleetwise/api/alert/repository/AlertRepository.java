@@ -47,4 +47,22 @@ public interface AlertRepository extends JpaRepository<Alert, UUID> {
     List<Alert> findByFleetId(UUID fleetId);
 
 //    boolean existsByVehicleIdAndTypeAndResolvedFalse(UUID vehicleId, String type);
+
+    @Query("""
+    select alert
+    from Alert alert
+    join fetch alert.vehicle vehicle
+    where vehicle.fleet.id = :fleetId
+      and alert.resolved = false
+    order by
+        case alert.severity
+            when com.fleetwise.api.alert.entity.AlertSeverity.CRITICAL then 1
+            when com.fleetwise.api.alert.entity.AlertSeverity.WARNING then 2
+            else 3
+        end,
+        alert.createdAt desc
+    """)
+    List<Alert> findOpenFleetAlertsForCopilot(
+            @Param("fleetId") UUID fleetId
+    );
 }

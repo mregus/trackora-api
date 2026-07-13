@@ -61,4 +61,11 @@ public interface TelematicsEventRepository
             Instant start,
             Instant end
     );
+
+    List<TelematicsEvent>
+    findByVehicleIdAndRecordedAtBetweenOrderByRecordedAtAsc(
+            UUID vehicleId,
+            Instant start,
+            Instant end
+    );
 }

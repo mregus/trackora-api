@@ -1,9 +1,11 @@
 package com.fleetwise.api.copilot.service;
 
 import com.fleetwise.api.copilot.ai.FleetCopilotOpenAiClient;
+import com.fleetwise.api.copilot.dto.CopilotConversationMessage;
 import com.fleetwise.api.copilot.dto.FleetCopilotContext;
 import com.fleetwise.api.copilot.dto.FleetCopilotResponse;
 import com.fleetwise.api.copilot.dto.VehicleRiskSummary;
+import com.fleetwise.api.copilot.entity.FleetCopilotConversation;
 import com.fleetwise.api.fleet.service.FleetAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,52 +28,86 @@ public class FleetCopilotService {
     private final FleetAccessService fleetAccessService;
     private final FleetCopilotContextService contextService;
     private final ObjectProvider<FleetCopilotOpenAiClient> openAiClientProvider;
+    private final FleetCopilotConversationService conversationService;
 
     public FleetCopilotResponse ask(
             UUID userId,
             UUID fleetId,
+            UUID conversationId,
             String question
     ) {
         fleetAccessService.validateAccess(fleetId, userId);
 
+        FleetCopilotConversation conversation =
+                conversationService.getOrCreate(
+                        conversationId,
+                        fleetId,
+                        userId,
+                        question
+                );
+
+        conversationService.saveUserMessage(
+                conversation,
+                question
+        );
+
+        List<CopilotConversationMessage> previousHistory =
+                conversationService.getRecentConversationHistory(
+                        conversation.getId()
+                );
+
         FleetCopilotContext context = contextService.build(fleetId);
 
         FleetCopilotResponse fallback =
-                buildDeterministicResponse(context, question);
+                buildDeterministicResponse(conversation.getId(), context, question);
+        FleetCopilotResponse response;
 
         FleetCopilotOpenAiClient client =
                 openAiClientProvider.getIfAvailable();
 
         if (client == null) {
-            return fallback;
+            response = fallback;
+        } else {
+            try {
+                String aiAnswer = client.answerWithTools(
+                        fleetId,
+                        userId,
+                        question,
+                        buildConversationHistory(previousHistory)
+                );
+
+                response = new FleetCopilotResponse(
+                        conversation.getId(),
+                        aiAnswer,
+                        fallback.supportingFacts(),
+                        Instant.now(),
+                        true
+                );
+
+            } catch (Exception ex) {
+                log.warn(
+                        "Fleet Copilot AI tool flow failed fleetId={}, conversationId={}, error={}",
+                        fleetId,
+                        conversation.getId(),
+                        ex.getMessage()
+                );
+
+                response = new FleetCopilotResponse(
+                        conversation.getId(),
+                        fallback.answer(),
+                        fallback.supportingFacts(),
+                        Instant.now(),
+                        false
+                );
+            }
         }
 
-        try {
-            String aiAnswer = client.rewrite(
-                    question,
-                    fallback.answer(),
-                    buildAiContext(context)
-            );
+        conversationService.saveAssistantMessage(conversation, response);
 
-            return new FleetCopilotResponse(
-                    aiAnswer,
-                    fallback.supportingFacts(),
-                    Instant.now(),
-                    true
-            );
-
-        } catch (Exception ex) {
-            log.warn(
-                    "Fleet Copilot AI rewrite failed fleetId={}, error={}",
-                    fleetId,
-                    ex.getMessage()
-            );
-
-            return fallback;
-        }
+        return response;
     }
 
-    private FleetCopilotResponse answerSafety(FleetCopilotContext context) {
+    private FleetCopilotResponse answerSafety(UUID conversationId, FleetCopilotContext context) {
         List<String> facts = new ArrayList<>();
 
         facts.add("Average fleet safety score: %.1f"
@@ -111,10 +147,11 @@ public class FleetCopilotService {
             );
         }
 
-        return response(answer, facts);
+        return response(conversationId, answer, facts);
     }
 
     private FleetCopilotResponse answerDeviceHealth(
+            UUID conversationId,
             FleetCopilotContext context
     ) {
         List<String> facts = List.of(
@@ -133,10 +170,11 @@ public class FleetCopilotService {
                 context.offlineVehicles()
         );
 
-        return response(answer, facts);
+        return response(conversationId, answer, facts);
     }
 
     private FleetCopilotResponse answerMaintenance(
+            UUID conversationId,
             FleetCopilotContext context
     ) {
         List<String> facts = List.of(
@@ -154,10 +192,10 @@ public class FleetCopilotService {
                 context.maintenanceDueSoon()
         );
 
-        return response(answer, facts);
+        return response(conversationId, answer, facts);
     }
 
-    private FleetCopilotResponse answerAlerts(FleetCopilotContext context) {
+    private FleetCopilotResponse answerAlerts(UUID conversationId, FleetCopilotContext context) {
         List<String> facts = List.of(
                 "Open alerts: " + context.openAlerts(),
                 "Critical alerts: " + context.criticalAlerts(),
@@ -174,10 +212,10 @@ public class FleetCopilotService {
                 context.warningAlerts()
         );
 
-        return response(answer, facts);
+        return response(conversationId, answer, facts);
     }
 
-    private FleetCopilotResponse answerCosts(FleetCopilotContext context) {
+    private FleetCopilotResponse answerCosts(UUID conversationId, FleetCopilotContext context) {
         List<String> facts = List.of(
                 "Fuel cost: $" + context.monthlyFuelCost(),
                 "Maintenance cost: $" + context.monthlyMaintenanceCost()
@@ -192,10 +230,11 @@ public class FleetCopilotService {
                 context.monthlyMaintenanceCost()
         );
 
-        return response(answer, facts);
+        return response(conversationId, answer, facts);
     }
 
     private FleetCopilotResponse answerOverview(
+            UUID conversationId,
             FleetCopilotContext context
     ) {
         List<String> facts = List.of(
@@ -217,14 +256,16 @@ public class FleetCopilotService {
                 context.averageSafetyScore()
         );
 
-        return response(answer, facts);
+        return response(conversationId, answer, facts);
     }
 
     private FleetCopilotResponse response(
+            UUID conversationId,
             String answer,
             List<String> facts
     ) {
         return new FleetCopilotResponse(
+                conversationId,
                 answer.strip(),
                 facts,
                 Instant.now(),
@@ -243,6 +284,7 @@ public class FleetCopilotService {
     }
 
     private FleetCopilotResponse buildDeterministicResponse(
+            UUID conversationId,
             FleetCopilotContext context,
             String question
     ) {
@@ -251,26 +293,26 @@ public class FleetCopilotService {
                 .toLowerCase(Locale.ROOT);
 
         if (containsAny(normalized, "safety", "unsafe", "risk", "driver score")) {
-            return answerSafety(context);
+            return answerSafety(conversationId, context);
         }
 
         if (containsAny(normalized, "offline", "online", "device", "reporting")) {
-            return answerDeviceHealth(context);
+            return answerDeviceHealth(conversationId, context);
         }
 
         if (containsAny(normalized, "maintenance", "service", "repair", "overdue")) {
-            return answerMaintenance(context);
+            return answerMaintenance(conversationId, context);
         }
 
         if (containsAny(normalized, "alert", "critical", "warning")) {
-            return answerAlerts(context);
+            return answerAlerts(conversationId, context);
         }
 
         if (containsAny(normalized, "cost", "fuel", "spend", "expense")) {
-            return answerCosts(context);
+            return answerCosts(conversationId, context);
         }
 
-        return answerOverview(context);
+        return answerOverview(conversationId, context);
     }
 
     private String buildAiContext(FleetCopilotContext context) {
@@ -328,5 +370,20 @@ public class FleetCopilotService {
                 context.averageSafetyScore(),
                 riskVehicles.isBlank() ? "No safety score data available." : riskVehicles
         );
+    }
+
+    private String buildConversationHistory(
+            List<CopilotConversationMessage> messages
+    ) {
+        if (messages.isEmpty()) {
+            return "No previous conversation.";
+        }
+
+        return messages.stream()
+                .map(message -> "%s: %s".formatted(
+                        message.role().name(),
+                        message.content()
+                ))
+                .collect(Collectors.joining("\n"));
     }
 }

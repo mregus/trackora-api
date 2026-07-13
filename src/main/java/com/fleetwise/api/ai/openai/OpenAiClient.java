@@ -2,16 +2,12 @@ package com.fleetwise.api.ai.openai;
 
 import com.fleetwise.api.ai.config.OpenAiProperties;
 import com.fleetwise.api.common.exception.ExternalServiceException;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.HttpClientErrorException;
 
 import java.util.List;
 import java.util.Map;
-
-import static com.fleetwise.api.ai.openai.AiPromptType.FLEET;
-import static com.fleetwise.api.ai.openai.AiPromptType.VEHICLE;
 
 @Component
 public class OpenAiClient {
@@ -57,7 +53,7 @@ public class OpenAiClient {
                     )
             );
 
-            Map response = restClient.post()
+            var response = restClient.post()
                     .uri("/chat/completions")
                     .body(request)
                     .retrieve()
