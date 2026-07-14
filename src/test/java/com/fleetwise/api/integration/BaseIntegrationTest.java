@@ -6,7 +6,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 
+import java.util.Map;
+import java.util.UUID;
+
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.anyOf;
+import static org.hamcrest.Matchers.equalTo;
+//import static org.testcontainers.shaded.org.bouncycastle.cms.RecipientId.password;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "spring.profiles.active=test")
@@ -105,5 +111,43 @@ public abstract class BaseIntegrationTest {
 
     protected String bearer(String token) {
         return "Bearer " + token;
+    }
+
+    protected String createAnotherUserBearer(){
+        String email = "it_user_" + System.currentTimeMillis() + "@fleetwise.com";
+        String password = "Password123!" + System.currentTimeMillis();
+
+        // register another user
+        given()
+                .contentType(ContentType.JSON)
+                .body("""
+                {
+                  "firstName":"IT",
+                  "lastName":"Tester",
+                  "email":"%s",
+                  "password":"%s",
+                  "role":"OWNER"
+                }
+                """.formatted(email, password))
+                .when()
+                .post("/api/auth/register")
+                .then()
+                .statusCode(200);
+
+        jwtToken =
+                given()
+                        .contentType(ContentType.JSON)
+                        .body("""
+                    {"email":"%s","password":"%s"}
+                    """.formatted(email, password))
+                        .when()
+                        .post("/api/auth/login")
+                        .then()
+                        .statusCode(200)
+                        .extract()
+                        .jsonPath()
+                        .getString("token");
+
+        return "Bearer " + jwtToken;
     }
 }

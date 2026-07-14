@@ -2,6 +2,7 @@ package com.fleetwise.api.copilot.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fleetwise.api.copilot.ai.FleetCopilotOpenAiClient;
 import com.fleetwise.api.fleet.service.FleetAccessService;
 import com.fleetwise.api.maintenance.entity.Maintenance;
 import com.fleetwise.api.maintenance.entity.MaintenanceStatus;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 class GetFleetMaintenanceToolTest {
@@ -54,7 +56,7 @@ class GetFleetMaintenanceToolTest {
         maintenance.setStatus(MaintenanceStatus.SCHEDULED);
         maintenance.setCost(BigDecimal.valueOf(89.99));
 
-        when(maintenanceRepository.findByVehicleFleetId(fleetId))
+        when(maintenanceRepository.findFleetMaintenanceForCopilot(fleetId))
                 .thenReturn(List.of(maintenance));
 
         String output = tool.execute(
@@ -66,6 +68,8 @@ class GetFleetMaintenanceToolTest {
         JsonNode json = objectMapper.readTree(output);
 
         verify(fleetAccessService).validateAccess(fleetId, userId);
+        verify(maintenanceRepository)
+                .findFleetMaintenanceForCopilot(fleetId);
 
         assertThat(json.isArray()).isTrue();
         assertThat(json).hasSize(1);

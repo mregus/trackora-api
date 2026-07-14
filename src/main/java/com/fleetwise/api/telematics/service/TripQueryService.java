@@ -155,6 +155,9 @@ public class TripQueryService {
                 buildTrips(vehicle, events, gapMinutes);
 
         int totalElements = allTrips.size();
+        int totalPages = totalElements == 0
+                ? 0
+                : (int) Math.ceil((double) totalElements / size);
 
         int fromIndex = Math.min(page * size, totalElements);
         int toIndex = Math.min(fromIndex + size, totalElements);
@@ -162,13 +165,12 @@ public class TripQueryService {
         List<TelematicsTripResponse> content =
                 allTrips.subList(fromIndex, toIndex);
 
-        return buildPagedTrips(
-                vehicle,
-                start,
-                end,
-                gapMinutes,
+        return new PageResponse<>(
+                content,
                 page,
-                size
+                size,
+                totalElements,
+                totalPages
         );
     }
 

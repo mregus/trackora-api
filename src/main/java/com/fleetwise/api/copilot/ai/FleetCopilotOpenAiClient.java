@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fleetwise.api.ai.dto.OpenAiToolRequest;
 import com.fleetwise.api.ai.dto.OpenAiToolResponse;
+import com.fleetwise.api.copilot.dto.CopilotConversationMessage;
+import com.fleetwise.api.copilot.observability.CopilotMetrics;
 import com.fleetwise.api.copilot.tool.FleetCopilotToolRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,15 +26,20 @@ import java.util.UUID;
 )
 public class FleetCopilotOpenAiClient {
 
+    private static final int MAX_TOOL_ROUNDS = 5;
     private final RestClient restClient;
     private final String model;
     private final ObjectMapper objectMapper;
     private final FleetCopilotToolRegistry toolRegistry;
+    private final CopilotMetrics copilotMetrics;
+    private final CopilotPromptBuilder copilotPromptBuilder;
 
     public FleetCopilotOpenAiClient(
             RestClient.Builder builder,
             ObjectMapper objectMapper,
             FleetCopilotToolRegistry toolRegistry,
+            CopilotMetrics copilotMetrics,
+            CopilotPromptBuilder copilotPromptBuilder,
             @Value("${openai.base-url}") String baseUrl,
             @Value("${openai.api-key}") String apiKey,
             @Value("${openai.model}") String model
@@ -44,6 +51,8 @@ public class FleetCopilotOpenAiClient {
 
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
+        this.copilotMetrics = copilotMetrics;
+        this.copilotPromptBuilder = copilotPromptBuilder;
         this.model = model;
     }
 
@@ -51,95 +60,59 @@ public class FleetCopilotOpenAiClient {
             UUID fleetId,
             UUID userId,
             String question,
-            String conversationHistory
+            List<CopilotConversationMessage> history
     ) {
-        OpenAiToolResponse first = restClient.post()
-                .uri("/responses")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new OpenAiToolRequest(
-                        model,
-                        copilotInstructions(),
-                        """
-                        Conversation history:
-                        %s
-
-                        Current question:
-                        %s
-                        """.formatted(
-                                conversationHistory,
-                                question
-                        ),
-                        buildTools(),
-                        "auto"
-                ))
-                .retrieve()
-                .body(OpenAiToolResponse.class);
-
-        if (first == null) {
-            throw new IllegalStateException(
-                    "OpenAI returned no response"
-            );
-        }
-
-        log.info(
-                "Copilot first OpenAI response id={}, functionCalls={}",
-                first.id(),
-                first.functionCalls().size()
+        OpenAiToolResponse response = sendInitialRequest(
+                question,
+                history
         );
 
-        List<OpenAiToolResponse.OutputItem> functionCalls =
-                first.functionCalls();
+        for (int round = 1; round <= MAX_TOOL_ROUNDS; round++) {
+            List<OpenAiToolResponse.OutputItem> calls =
+                    response.functionCalls();
 
-        if (functionCalls.isEmpty()) {
-            String text = first.outputText();
+            if (calls.isEmpty()) {
+                String text = response.outputText();
 
-            if (text == null || text.isBlank()) {
-                throw new IllegalStateException(
-                        "OpenAI returned neither text nor tool calls"
+                if (text == null || text.isBlank()) {
+                    throw new IllegalStateException(
+                            "OpenAI returned neither text nor tool calls"
+                    );
+                }
+
+                log.info(
+                        "Copilot completed fleetId={}, rounds={}",
+                        fleetId,
+                        round
                 );
+
+                copilotMetrics.toolRound(calls.size());
+
+                return text.strip();
             }
 
-            return text.strip();
-        }
+            log.info(
+                    "Copilot tool round fleetId={}, round={}, calls={}",
+                    fleetId,
+                    round,
+                    calls.stream()
+                            .map(OpenAiToolResponse.OutputItem::name)
+                            .toList()
+            );
 
-        List<Map<String, Object>> toolOutputs =
-                executeToolCalls(
-                        first,
-                        fleetId,
-                        userId
-                );
+            List<Map<String, Object>> outputs =
+                    executeToolCalls(response, fleetId, userId);
 
-        OpenAiToolResponse second = restClient.post()
-                .uri("/responses")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of(
-                        "model", model,
-                        "previous_response_id", first.id(),
-                        "input", toolOutputs
-                ))
-                .retrieve()
-                .body(OpenAiToolResponse.class);
-
-        if (second == null) {
-            throw new IllegalStateException(
-                    "OpenAI returned no response after tool execution"
+            response = sendToolOutputs(
+                    response.id(),
+                    outputs
             );
         }
 
-        log.info(
-                "Copilot tool flow completed responseId={}",
-                second.id()
+        throw new IllegalStateException(
+                "Copilot exceeded maximum tool rounds: "
+                        + MAX_TOOL_ROUNDS
         );
-
-        String finalText = second.outputText();
-
-        if (finalText == null || finalText.isBlank()) {
-            throw new IllegalStateException(
-                    "OpenAI returned no final answer after tool execution"
-            );
-        }
-
-        return finalText.strip();
     }
 
     private List<Map<String, Object>> executeToolCalls(
@@ -167,12 +140,17 @@ public class FleetCopilotOpenAiClient {
                     call.arguments()
             );
 
-            String output = toolRegistry.execute(
+            String output = copilotMetrics.recordToolCall(
                     call.name(),
-                    fleetId,
-                    userId,
-                    arguments
+                    () -> toolRegistry.execute(
+                            call.name(),
+                            fleetId,
+                            userId,
+                            arguments
+                    )
             );
+
+            copilotMetrics.toolSucceeded(call.name());
 
             log.info(
                     "Executing Copilot tool name={}, callId={}, fleetId={}",
@@ -194,6 +172,11 @@ public class FleetCopilotOpenAiClient {
                     call.callId(),
                     fleetId,
                     ex
+            );
+
+            copilotMetrics.toolFailed(
+                    call.name(),
+                    classifyToolFailure(ex)
             );
 
             throw new IllegalStateException(
@@ -234,17 +217,92 @@ public class FleetCopilotOpenAiClient {
 
     private String copilotInstructions() {
         return """
-                You are Trackora Fleet Copilot.
+            You are Trackora Fleet Copilot.
 
-                Use the available tools whenever current fleet facts are required.
+            Use the available tools whenever current fleet facts are required.
 
-                Rules:
-                - Never invent vehicles, costs, alerts, maintenance records, or metrics.
-                - Treat tool results as the source of truth.
-                - Use conversation history only to interpret references and follow-up questions.
-                - Do not expose internal implementation details.
-                - Clearly state when available data is insufficient.
-                - Keep answers concise, practical, and operational.
-                """;
+            Tool-use rules:
+            - You may call multiple tools when the question requires comparison
+              across safety, maintenance, alerts, costs, vehicles, or trips.
+            - Do not answer factual fleet questions from memory.
+            - Use tool results as the source of truth.
+            - When a vehicle reference is ambiguous, ask the user to clarify.
+            - Do not invent vehicle names, costs, alerts, trips, or maintenance data.
+            - Clearly distinguish current recorded data from estimates.
+            - If a tool returns no records, say that no matching records were found.
+            - Keep the final response concise and operational.
+            - Do not mention tool names, prompts, JSON, or implementation details.
+            """;
+    }
+
+    private String classifyToolFailure(Exception ex) {
+        if (ex instanceof IllegalArgumentException) {
+            return "invalid_arguments";
+        }
+
+        String name = ex.getClass().getSimpleName();
+
+        if (name.contains("ResourceNotFound")) {
+            return "not_found";
+        }
+
+        if (name.contains("DataAccess")) {
+            return "database_error";
+        }
+
+        return "unknown";
+    }
+
+    private OpenAiToolResponse sendInitialRequest(
+            String question,
+            List<CopilotConversationMessage> history
+    ) {
+        OpenAiToolResponse response = restClient.post()
+                .uri("/responses")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new OpenAiToolRequest(
+                        model,
+                        copilotPromptBuilder.instructions(),
+                        copilotPromptBuilder.buildInitialInput(
+                                question,
+                                history
+                        ),
+                        buildTools(),
+                        "auto"
+                ))
+                .retrieve()
+                .body(OpenAiToolResponse.class);
+
+        if (response == null) {
+            throw new IllegalStateException(
+                    "OpenAI returned no initial response"
+            );
+        }
+
+        return response;
+    }
+
+    private OpenAiToolResponse sendToolOutputs(
+            String previousResponseId,
+            List<Map<String, Object>> outputs
+    ) {
+        OpenAiToolResponse response = restClient.post()
+                .uri("/responses")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of(
+                        "model", model,
+                        "previous_response_id", previousResponseId,
+                        "input", outputs
+                ))
+                .retrieve()
+                .body(OpenAiToolResponse.class);
+
+        if (response == null) {
+            throw new IllegalStateException(
+                    "OpenAI returned no response after tool execution"
+            );
+        }
+
+        return response;
     }
 }
