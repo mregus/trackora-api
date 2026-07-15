@@ -2,7 +2,7 @@ package com.fleetwise.api.copilot.service;
 
 import com.fleetwise.api.copilot.ai.FleetCopilotOpenAiClient;
 import com.fleetwise.api.copilot.dto.FleetCopilotResponse;
-import com.fleetwise.api.copilot.entity.FleetCopilotConversation;
+import com.fleetwise.api.copilot.conversation.entity.FleetCopilotConversation;
 import com.fleetwise.api.copilot.observability.CopilotMetrics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;

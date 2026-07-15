@@ -1,7 +1,6 @@
 package com.fleetwise.api.copilot.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fleetwise.api.copilot.ai.OpenAiFunctionTool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 

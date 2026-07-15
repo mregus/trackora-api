@@ -1,13 +1,16 @@
-package com.fleetwise.api.copilot.service;
+package com.fleetwise.api.copilot.conversation.service;
 
 import com.fleetwise.api.auth.entity.User;
 import com.fleetwise.api.auth.repository.UserRepository;
 import com.fleetwise.api.common.exception.ResourceNotFoundException;
+import com.fleetwise.api.copilot.conversation.dto.CopilotConversationDetailResponse;
+import com.fleetwise.api.copilot.conversation.dto.CopilotConversationMessage;
+import com.fleetwise.api.copilot.conversation.dto.CopilotConversationSummaryResponse;
 import com.fleetwise.api.copilot.dto.*;
 import com.fleetwise.api.copilot.entity.CopilotMessageRole;
-import com.fleetwise.api.copilot.entity.FleetCopilotConversation;
+import com.fleetwise.api.copilot.conversation.entity.FleetCopilotConversation;
 import com.fleetwise.api.copilot.entity.FleetCopilotMessage;
-import com.fleetwise.api.copilot.repository.FleetCopilotConversationRepository;
+import com.fleetwise.api.copilot.conversation.repository.FleetCopilotConversationRepository;
 import com.fleetwise.api.copilot.repository.FleetCopilotMessageRepository;
 import com.fleetwise.api.fleet.entity.Fleet;
 import com.fleetwise.api.fleet.repository.FleetRepository;

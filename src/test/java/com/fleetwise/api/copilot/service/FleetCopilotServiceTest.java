@@ -1,8 +1,9 @@
 package com.fleetwise.api.copilot.service;
 
+import com.fleetwise.api.copilot.conversation.service.FleetCopilotConversationService;
 import com.fleetwise.api.copilot.dto.FleetCopilotContext;
 import com.fleetwise.api.copilot.dto.FleetCopilotResponse;
-import com.fleetwise.api.copilot.entity.FleetCopilotConversation;
+import com.fleetwise.api.copilot.conversation.entity.FleetCopilotConversation;
 import com.fleetwise.api.copilot.fallback.FleetCopilotFallbackService;
 import com.fleetwise.api.copilot.observability.CopilotMetrics;
 import com.fleetwise.api.fleet.service.FleetAccessService;

@@ -1,108 +1,247 @@
-# FleetWise
+# 🚛 Trackora
 
-FleetWise is an AI-powered fleet management platform focused on maintenance operations, fuel tracking, operational alerts, and AI-assisted fleet insights.
+A modern fleet management platform built with Spring Boot, Angular, Azure messaging, real-time telemetry, and AI-powered fleet operations.
 
-## Screenshots
+![Java](https://img.shields.io/badge/Java-21-orange)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-brightgreen)
+![Angular](https://img.shields.io/badge/Angular-20-red)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue)
+![Docker](https://img.shields.io/badge/Docker-Compose-blue)
+![Azure Service Bus](https://img.shields.io/badge/Azure-Service%20Bus-0078D4)
+![OpenAI](https://img.shields.io/badge/OpenAI-Responses_API-black)
+![Grafana](https://img.shields.io/badge/Grafana-Observability-orange)
 
-### Dashboard
-- Fleet KPIs
-- AI fleet summaries
-- Alert overview
-- Fuel and maintenance charts
+## Overview
 
-![Dashboard](/images/dashboard.png)
+Trackora is a production-style fleet management platform designed to demonstrate modern backend architecture, event-driven systems, real-time telemetry processing, observability, and AI integration.
 
-### Vehicle Details
-- Vehicle analytics
-- AI vehicle insights
-- Maintenance history
-- Vehicle document management
+The platform allows fleet managers to:
 
-![Vehicles](/images/vehicles.png)
+- Manage fleets and vehicles
+- Track GPS telemetry in real time
+- Detect trips automatically
+- Monitor driver safety
+- Receive maintenance and alert recommendations
+- View live dashboards through WebSockets
+- Interact with an AI Fleet Copilot capable of answering operational questions using live fleet data
 
-### Maintenance
-- Maintenance scheduling
-- Invoice/document uploads
-- Status tracking
+## Why Trackora?
 
-![Maintenance](/images/maintenance.png)
+Trackora was built to explore the architecture behind modern fleet management platforms such as Samsara, Geotab, Verizon Connect, and Motive.
 
-### Alerts
-- Severity filtering
-- Pagination
-- Operational alerts
+The goal was to build a production-style application that demonstrates:
 
-![Alerts](/images/alerts.png)
+- Event-driven architecture
+- Real-time telemetry processing
+- AI-assisted fleet operations
+- Cloud messaging
+- Observability
+- Multi-tenant security
+- Modern Angular UI
+
+## Project Highlights
+
+- Modular backend architecture
+- Extensive REST API coverage
+- Broad unit and integration test suite
+
+| Layer            | Technology                      |
+|------------------|---------------------------------|
+| Backend          | Java 21                         |
+| Framework        | Spring Boot 3                   |
+| Frontend         | Angular 20                      |
+| Security         | Spring Security + JWT           |
+| Database         | PostgreSQL                      |
+| ORM              | Spring Data JPA                 |
+| Messaging        | Azure Service Bus               |
+| AI               | OpenAI Responses API            |
+| Observability    | Micrometer, Prometheus, Grafana |
+| Build            | Gradle                          |
+| Testing          | JUnit 5, Mockito, RestAssured   |
+| Containerization | Docker                          |
+
+
+| Capability           | Status |
+|----------------------|--------|
+| Fleet Management     | ✅      |
+| GPS Telematics       | ✅      |
+| Trip Detection       | ✅      |
+| Driver Safety        | ✅      |
+| Live Dashboard       | ✅      |
+| AI Copilot           | ✅      |
+| Tool Calling         | ✅      |
+| Conversation History | ✅      |
+| Azure Service Bus    | ✅      |
+| WebSockets           | ✅      |
+| Observability        | ✅      |
+
+---
+
+## Dashboard
+
+![Fleet Dashboard](docs/images/dashboard-1.png)
+![Fleet Dashboard](docs/images/dashboard-2.png)
+
+---
+
+## Driver Safety
+
+![Safety Dashboard](docs/images/safety-dashboard-1.png)
+![Safety Dashboard](docs/images/safety-dashboard-2.png)
+
+---
+
+## Fleet Copilot
+
+![Fleet Copilot](docs/images/copilot.png)
+
+---
+
+## Grafana
+
+![Grafana](docs/images/grafana-overview.png)
+
+---
 
 ## Features
 
-- JWT authentication
-- Fleet and vehicle management
-- Maintenance tracking and scheduling
-- Fuel logging and anomaly alerts
-- AI-generated fleet and vehicle summaries
-- Operational alert center with severity levels
-- Vehicle and maintenance document uploads
-- Dashboard analytics and charts
-- Pagination and filtering
-- Swagger/OpenAPI docs
-- Dockerized local runtime
-- Integration test coverage
+### Fleet Management
 
----
-
-## Backend Stack
-
-- Java 21
-- Spring Boot 3.x
-- Gradle
-- PostgreSQL 16
-- Flyway
-- Spring Security
-- JWT
-- Spring Data JPA
-- OpenAPI / Swagger
-- Docker Compose
-- Rest Assured integration tests
-
----
-
-## Frontend
-
-FleetWise includes an Angular frontend application providing:
-
-- Dashboard analytics
-- Vehicle management UI
-- Maintenance management
+- Fleet administration
+- Vehicle management
+- Maintenance scheduling
 - Fuel tracking
-- Alerts center
-- AI insights
-- Document uploads
-- Responsive Material UI
+- Alerts
 
-Frontend stack:
+### Telematics
 
-- Angular 19
-- Angular Material
-- RxJS
-- Signals
-- Chart.js
+- GPS telemetry ingestion
+- Automatic trip detection
+- Live vehicle status
+- Driver safety scoring
+- Historical trip replay
 
----
+### Real-Time
+
+- STOMP WebSockets
+- Live dashboard updates
+- Live alert updates
+- Live safety metrics
+
+### AI Fleet Copilot
+
+- OpenAI Responses API
+- Tool calling
+- Conversation history
+- Fleet context awareness
+- Deterministic fallback responses
+- Multi-tool orchestration
 
 ## Architecture
 
-Frontend:
-- Angular SPA
+```mermaid
+flowchart TD
+    A[Geometris Device] --> B[Azure Service Bus]
+    B --> C[Telemetry Consumer]
+    C --> D[Packet Parser]
+    D --> E[(Raw Packets)]
+    D --> F[Telemetry Events]
 
-Backend:
-- Spring Boot REST API
+    F --> G[Vehicle Current State]
+    F --> H[Trip Detection]
+    F --> I[Safety Scoring]
+    F --> J[Alert Generation]
 
-Database:
-- PostgreSQL 16
+    G --> K[Live Fleet Map]
+    G --> L[Dashboard]
+    H --> M[Trip History]
+    I --> N[Safety Dashboard]
+    J --> O[Alert Center]
 
-Infrastructure:
-- Docker Compose
+    G --> P[WebSockets]
+    I --> P
+    J --> P
+```
+
+## Deployment
+
+Current deployment options:
+
+- Local Docker Compose
+- Local Gradle execution
+- GitHub Actions
+
+Future deployment targets:
+
+- Kubernetes
+- Azure Container Apps
+- AWS ECS
+
+### Backend Modules
+
+```text
+src/main/java/com/fleetwise/api
+    ├── auth
+    ├── fleet
+    ├── vehicle
+    ├── maintenance
+    ├── fuel
+    ├── alerts
+    ├── dashboard
+    ├── telematics
+    ├── trip
+    ├── safety
+    ├── copilot
+    ├── observability
+    ├── security
+    └── config
+```
+
+### AI Architecture
+
+```mermaid
+flowchart TD
+    A[User Question] --> B[FleetCopilotController]
+    B --> C[FleetCopilotService]
+    C --> D[FleetCopilotResponseGenerator]
+    D --> E[OpenAI Responses API]
+
+    E --> F[FleetCopilotToolRegistry]
+
+    F --> G[Fleet Summary Tool]
+    F --> H[Safety Tool]
+    F --> I[Maintenance Tool]
+    F --> J[Alerts Tool]
+    F --> K[Costs Tool]
+    F --> L[Vehicle Details Tool]
+    F --> M[Vehicle Trips Tool]
+
+    G --> N[Domain Services and Repositories]
+    H --> N
+    I --> N
+    J --> N
+    K --> N
+    L --> N
+    M --> N
+
+    N --> O[(PostgreSQL)]
+    N --> E
+
+    E --> P[Final Assistant Response]
+    P --> Q[Conversation Persistence]
+    Q --> O
+```
+
+## Testing
+
+The project contains:
+
+- Unit tests
+- Integration tests
+- API tests
+- AI tool tests
+- Conversation tests
+- Multi-tenant security tests
 
 ---
 
@@ -116,211 +255,43 @@ Supports:
 - File validation
 - Tenant isolation
 
-Documents stored on AWS S3 bucket:
+Documents are stored on AWS S3 bucket.
 
-```text
-STORAGE_PROVIDER=s3
-AWS_S3_BUCKET=trackora-documents
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-```
+## Document storage
 
----
+See [S3 bucket](docs/operations/document-storage.md).
 
-## Alerts
+## Local setup and Docker
 
-Alert types include:
-- Maintenance due
-- Maintenance overdue
-- Fuel anomalies
+See [Local setup](docs/operations/local-development.md).
 
-Severity levels:
-- CRITICAL
-- WARNING
-- INFO
+## AI Configuration
 
-## Project Structure
+OpenAI integration is disabled by default. Trackora provides deterministic fallback responses when AI is unavailable.
 
-```text
-src/main/java/com/fleetwise/api
- ├── auth
- ├── fleet
- ├── vehicle
- ├── maintenance
- ├── fuel
- ├── alert
- ├── ai
- ├── dashboard
- └── common
- ```
-
-## Prerequisites
-
-- Java 21
-- Docker Desktop
-
-## Local Development
-
-Start Postgres only:
-
-- `docker compose up -d postgres`
-
-Run the API locally:
-
-- `./gradlew bootRun`
-
-Run with dev seed data:
-
-- `SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun`
-
-## Docker Runtime
-
-Run PostgreSQL and API together:
-
-- `docker compose up --build`
-
-Stop services:
-
-- `docker compose down`
-
-Reset local database:
-
-- `docker compose down -v`
-- `docker compose up -d postgres`
-
-## Database
-
-Default local database:
-
-```text 
-Database: fleetwise
-Username: fleetwise
-Password: fleetwise
-Port: 5432
-```
-
-Connect with psql:
-
-- `docker exec -it fleetwise-postgres psql -U fleetwise -d fleetwise`
-
-## Flyway Migrations
-
-When running with the dev profile:
-
-- `SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun`
-
-Demo credentials:
-
-```text
-Email: demo@fleetwise.com
-Password: Password123!
-```
-
-Seed data includes:
-
-- Demo fleet
-- 3 vehicles
-- Maintenance records
-- Fuel logs
-- Alerts
-- Mock AI insight
-
-## OpenAI Configuration
-
-By default, OpenAI is disabled for local development.
-
-```text
-openai:
-  enabled: false
-```
-
-To enable real OpenAI calls:
-
-- `export OPENAI_ENABLED=true`
-- `export OPENAI_API_KEY=your_api_key_here`
-- `./gradlew bootRun`
-
-For tests and local demos, mock mode is recommended.
+See [OpenAI Configuration](docs/operations/openai-configuration.md).
 
 ### API Documentation
 
-Swagger UI:
-
-http://localhost:8080/swagger-ui.html
-
-OpenAPI JSON:
-
-http://localhost:8080/v3/api-docs
+See [Swagger info](docs/api/openapi.md).
 
 ## Authentication Flow
 
-Register:
-
-- `POST /api/auth/register`
-
-Login:
-
-- `POST /api/auth/login`
-
-Current user:
-
-```text
-GET /api/auth/me
-Authorization: Bearer <token>
-```
-
-Use the returned JWT token for protected endpoints.
+See [Register/Authentication details](docs/api/authentication.md).
 
 ## Running Tests
 
-Run all tests:
+See [Test execution](docs/development/testing.md).
 
-- `./gradlew clean test`
+## Observability details
 
-Run one integration test:
+See [actuator/grafana](docs/operations/observability.md).
 
-- `./gradlew test --tests "*VehicleApiIT"`
+## Future Enhancements
 
-Recommended test coverage includes:
-
-1. Auth API
-2. Fleet CRUD
-3. Vehicle CRUD
-4. Maintenance CRUD
-5. Fuel logging
-6. Alerts
-7. Dashboard summary
-8. Tenant isolation
-9. AI insight generation
-
-All fleet-scoped data is protected by ownership checks.
-
-__Examples:__
-
-```text
-findByIdAndOwnerId(fleetId, ownerUserId)
-findByIdAndFleetOwnerId(vehicleId, ownerUserId)
-```
-
-Users must not be able to access another user's:
-
-- fleets
-- vehicles
-- maintenance records
-- fuel logs
-- alerts
-- dashboard data
-- AI insights
-
-## Health Check
-
-- `GET /actuator/health`
-
-Expected:
-
-```json
-{
-    "status": "UP"
-}
-```
+- AI streaming responses
+- Predictive maintenance
+- Mobile application
+- Public REST API
+- Fleet reporting
+- Driver coaching recommendations

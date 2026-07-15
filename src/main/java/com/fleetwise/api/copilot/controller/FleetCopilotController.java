@@ -1,8 +1,10 @@
 package com.fleetwise.api.copilot.controller;
 
 import com.fleetwise.api.auth.security.UserPrincipal;
+import com.fleetwise.api.copilot.conversation.dto.CopilotConversationDetailResponse;
+import com.fleetwise.api.copilot.conversation.dto.CopilotConversationSummaryResponse;
 import com.fleetwise.api.copilot.dto.*;
-import com.fleetwise.api.copilot.service.FleetCopilotConversationService;
+import com.fleetwise.api.copilot.conversation.service.FleetCopilotConversationService;
 import com.fleetwise.api.copilot.service.FleetCopilotService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

@@ -1,4 +1,6 @@
-package com.fleetwise.api.copilot.dto;
+package com.fleetwise.api.copilot.conversation.dto;
+
+import com.fleetwise.api.copilot.dto.CopilotMessageResponse;
 
 import java.time.Instant;
 import java.util.List;

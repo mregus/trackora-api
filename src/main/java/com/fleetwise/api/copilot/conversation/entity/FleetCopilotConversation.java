@@ -1,4 +1,4 @@
-package com.fleetwise.api.copilot.entity;
+package com.fleetwise.api.copilot.conversation.entity;
 
 import com.fleetwise.api.auth.entity.User;
 import com.fleetwise.api.fleet.entity.Fleet;

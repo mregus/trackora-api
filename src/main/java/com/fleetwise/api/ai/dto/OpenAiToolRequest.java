@@ -1,7 +1,7 @@
 package com.fleetwise.api.ai.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fleetwise.api.copilot.ai.OpenAiFunctionTool;
+import com.fleetwise.api.copilot.ai.dto.OpenAiFunctionTool;
 
 import java.util.List;
 

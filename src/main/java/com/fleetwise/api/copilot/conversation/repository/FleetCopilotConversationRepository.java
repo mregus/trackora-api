@@ -1,7 +1,6 @@
-package com.fleetwise.api.copilot.repository;
+package com.fleetwise.api.copilot.conversation.repository;
 
-import com.fleetwise.api.copilot.entity.FleetCopilotConversation;
-import com.fleetwise.api.copilot.entity.FleetCopilotMessage;
+import com.fleetwise.api.copilot.conversation.entity.FleetCopilotConversation;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

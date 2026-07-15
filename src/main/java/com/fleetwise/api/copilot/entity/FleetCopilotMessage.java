@@ -1,5 +1,6 @@
 package com.fleetwise.api.copilot.entity;
 
+import com.fleetwise.api.copilot.conversation.entity.FleetCopilotConversation;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;

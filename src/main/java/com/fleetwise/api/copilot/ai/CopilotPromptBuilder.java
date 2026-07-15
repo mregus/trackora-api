@@ -1,6 +1,6 @@
 package com.fleetwise.api.copilot.ai;
 
-import com.fleetwise.api.copilot.dto.CopilotConversationMessage;
+import com.fleetwise.api.copilot.conversation.dto.CopilotConversationMessage;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

@@ -1,4 +1,4 @@
-package com.fleetwise.api.copilot.ai;
+package com.fleetwise.api.copilot.ai.dto;
 
 import java.util.Map;
 
