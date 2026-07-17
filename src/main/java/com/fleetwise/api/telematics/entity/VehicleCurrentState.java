@@ -29,6 +29,15 @@ public class VehicleCurrentState {
     private Double latitude;
     private Double longitude;
 
+    @Column(name = "ignition_on")
+    private Boolean ignitionOn;
+
+    @Column(name = "idle_started_at")
+    private Instant idleStartedAt;
+
+    @Column(name = "current_idle_minutes", nullable = false)
+    private Integer currentIdleMinutes = 0;
+
     @Column(name = "speed_mph")
     private BigDecimal speedMph;
 

@@ -1,14 +1,26 @@
 package com.fleetwise.api.telematics.geometris;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 
+@SpringJUnitConfig(classes = {
+        GeometrisPacketParser.class,
+        GeometrisFormatRegistry.class,
+        GeometrisCsvFieldParser.class,
+        GeometrisPacketMapper.class,
+        GeometrisValueParser.class
+})
 class GeometrisPacketParserTest {
 
-    private final GeometrisPacketParser parser = new GeometrisPacketParser();
+    @Autowired
+    private GeometrisPacketParser parser;
 
     @Test
     void parse_ShouldParseReal87InventoryPacket() {
@@ -38,20 +50,81 @@ class GeometrisPacketParserTest {
 
     @Test
     void parse_ShouldParseReal87GpsTrailPacket() {
-        String raw = "5873,87X061350079,1782164277,29.125814,-82.202898,50,126,N,86,39,128428.9,-3:361:41:2.715:1273:40:8.1282:1517:35:12.236:984:35:6.-99:804:35:5.-378:771:29:6.-452:592:9:7.-33:19:8.-59:3:11:2.-24:-38:7.2:-50:10.972:-1827:35:15.-77:-851:35:5.-353:-767:37:5.-1503:-1730:35:14.-264:-1079:33:7.-174:-1118:36:7.-482:-905:29:7";
+        String raw =
+                "5873,87X061350079,1782164277,29.125814,-82.202898,50,126,N,86,39,128428.9,-3:361:41:2.715:1273:40:8.1282:1517:35:12";
 
         GeometrisPacket packet = parser.parse(raw);
 
         assertThat(packet.formatCrc()).isEqualTo("5873");
         assertThat(packet.serialNumber()).isEqualTo("87X061350079");
-        assertThat(packet.reasonText()).isEqualTo("GPS_TRAIL");
-        assertThat(packet.recordedAt()).isEqualTo(Instant.ofEpochSecond(1782164277));
+        assertThat(packet.reasonText()).isNull();
+        assertThat(packet.recordedAt())
+                .isEqualTo(Instant.ofEpochSecond(1782164277));
         assertThat(packet.latitude()).isEqualTo(29.125814);
         assertThat(packet.longitude()).isEqualTo(-82.202898);
         assertThat(packet.headingDegrees()).isEqualTo(86);
         assertThat(packet.speedMph()).isEqualByComparingTo("39");
-        assertThat(packet.gpsOdometerMiles()).isEqualByComparingTo("128428.9");
+        assertThat(packet.gpsOdometerMiles())
+                .isEqualByComparingTo("128428.9");
         assertThat(packet.locationTrail()).isNotBlank();
         assertThat(packet.locationTrail()).startsWith("-3:361:41:2");
+    }
+
+    @Test
+    void shouldParse5873WithLocationTrail() {
+        String raw = """
+                5873,87X061350079,1784072347,29.126219,-82.201206,50,1751,N,234,31,128562.3,-725:-864:17:10.-1250:-584:30:22
+                """.strip();
+
+        GeometrisPacket packet = parser.parse(raw);
+
+        assertThat(packet.formatCrc()).isEqualTo("5873");
+        assertThat(packet.serialNumber())
+                .isEqualTo("87X061350079");
+        assertThat(packet.recordedAt())
+                .isEqualTo(
+                        Instant.ofEpochSecond(1784072347)
+                );
+        assertThat(packet.speedMph())
+                .isEqualByComparingTo("31");
+        assertThat(packet.headingDegrees())
+                .isEqualTo(234);
+        assertThat(packet.gpsOdometerMiles())
+                .isEqualByComparingTo("128562.3");
+        assertThat(packet.locationTrail())
+                .startsWith("-725:-864");
+    }
+
+    @Test
+    void shouldParse5873WithEmptyTrail() {
+        GeometrisPacket packet = parser.parse(
+                "5873,87X061350079,1784072468,29.125616,-82.208694,50,1759,N,7,0,128562.9,"
+        );
+
+        assertThat(packet.locationTrail()).isNull();
+    }
+
+    @Test
+    void shouldRejectUnknownFormatChecksum() {
+        assertThatThrownBy(() ->
+                parser.parse(
+                        "ABCD,87X061350079,1784072468"
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(
+                        "Unsupported Geometris format checksum"
+                );
+    }
+
+    @Test
+    void shouldReject5873WhenRequiredFieldsAreMissing() {
+        assertThatThrownBy(() ->
+                parser.parse(
+                        "5873,87X061350079,1784072468,29.125616"
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Expected at least 12 fields");
     }
 }

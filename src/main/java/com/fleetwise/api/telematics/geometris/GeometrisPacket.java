@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 public record GeometrisPacket(
+        Boolean ignitionOn,
         String formatCrc,
         String serialNumber,
         String reasonText,

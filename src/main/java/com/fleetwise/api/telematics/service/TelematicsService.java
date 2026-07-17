@@ -24,7 +24,6 @@ import com.fleetwise.api.telematics.repository.TelematicsEventRepository;
 import com.fleetwise.api.telematics.repository.VehicleCurrentStateRepository;
 import com.fleetwise.api.vehicle.entity.Vehicle;
 import com.fleetwise.api.vehicle.repository.VehicleRepository;
-import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -37,7 +36,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -46,6 +44,9 @@ import java.util.UUID;
 public class TelematicsService {
 
     Logger logger = LoggerFactory.getLogger(TelematicsService.class);
+
+    private static final BigDecimal IDLE_SPEED_THRESHOLD_MPH =
+            BigDecimal.valueOf(2);
 
     private final GeometrisGpsTrailDecoder gpsTrailDecoder;
     private final TelematicsDeviceRepository telematicsDeviceRepository;
@@ -63,6 +64,15 @@ public class TelematicsService {
     private final DashboardRealtimePublisher dashboardRealtimePublisher;
     private final SafetyScoreUpdaterService safetyScoreUpdaterService;
     private final SafetyScoreRealtimePublisher safetyScoreRealtimePublisher;
+
+    public void createSystemAlert(
+            Vehicle vehicle,
+            AlertType type,
+            AlertSeverity severity,
+            String message
+    ) {
+        createAlert(vehicle, type, severity, message);
+    }
 
     @Transactional
     public TelematicsEventResponse createEvent(
@@ -94,9 +104,17 @@ public class TelematicsService {
                 () -> telematicsEventRepository.save(event)
         );
 
-        updateVehicleCurrentState(vehicle, saved);
+        VehicleCurrentState state =
+                getOrCreateCurrentState(vehicle);
 
-        generateTelematicsAlerts(vehicle, saved);
+        updateManualEventState(
+                state,
+                saved
+        );
+
+        vehicleCurrentStateRepository.save(state);
+
+        generateTelematicsAlerts(vehicle, saved, null);
 
         return toResponse(saved);
     }
@@ -171,224 +189,14 @@ public class TelematicsService {
                 .toList();
     }
 
-    public void createSystemAlert(
-            Vehicle vehicle,
-            AlertType type,
-            AlertSeverity severity,
-            String message
-    ) {
-        createAlert(vehicle, type, severity, message);
-    }
-
-    private GeometrisRawPacketResponse toRawPacketResponse(GeometrisRawPacket packet) {
-        return new GeometrisRawPacketResponse(
-                packet.getId(),
-                packet.getSerialNumber(),
-                packet.getReasonText(),
-                packet.isParsedSuccessfully(),
-                packet.getErrorMessage(),
-                packet.getReceivedAt()
-        );
-    }
-
-    private TelematicsDeviceResponse toDeviceResponse(TelematicsDevice device) {
-        return new TelematicsDeviceResponse(
-                device.getId(),
-                device.getVehicle().getId(),
-                device.getProvider(),
-                device.getExternalDeviceId(),
-                device.getSerialNumber(),
-                device.getImei(),
-                device.getVin(),
-                device.isActive(),
-                device.getCreatedAt(),
-                device.getUpdatedAt(),
-                device.getLastSeenAt()
-        );
+    @Transactional
+    public void ingestGeometrisPacket(String rawPacket) {
+        processGeometrisPacket(rawPacket, TelemetrySource.HTTP);
     }
 
     @Transactional
-    public TelematicsEventResponse ingestGeometrisPacket(String rawPacket) {
-        TelematicsEvent saved = processGeometrisPacket(rawPacket, TelemetrySource.HTTP);
-        return toResponse(saved);
-    }
-
-    @Transactional
-    public TelematicsEvent ingestGeometrisPacketEntity(String rawPacket, TelemetrySource source) {
-        return processGeometrisPacket(rawPacket, source);
-    }
-
-    private TelematicsEvent processGeometrisPacket(String rawPacket, TelemetrySource source) {
-        telematicsMetrics.packetReceived(source);
-        Timer.Sample sample = telematicsMetrics.startTimer();
-        long startMs = System.currentTimeMillis();
-        RawTelematicsPacket raw = saveRawPacket(rawPacket);
-
-        try {
-            GeometrisPacket packet = telematicsMetrics.record(
-                    telematicsMetrics.getParseTimer(),
-                    () -> geometrisPacketParser.parse(rawPacket)
-            );
-
-            telematicsMetrics.packetType(
-                    source,
-                    packet.formatCrc(),
-                    packet.reasonText()
-            );
-
-            raw.setDeviceSerial(packet.serialNumber());
-            raw.setPacketType(packet.formatCrc());
-
-            GeometrisRawPacket geometrisRawPacket = GeometrisRawPacket.builder()
-                    .serialNumber(packet.serialNumber())
-                    .reasonText(packet.reasonText())
-                    .rawPacket(rawPacket)
-                    .parsedSuccessfully(true)
-                    .build();
-
-            geometrisRawPacketRepository.save(geometrisRawPacket);
-
-            TelematicsDevice device = telematicsDeviceRepository
-                    .findByProviderAndSerialNumberAndActiveTrue(
-                            TelematicsProvider.GEOMETRIS,
-                            packet.serialNumber()
-                    )
-                    .orElseThrow(() -> new ResourceNotFoundException(
-                            "No active Geometris device mapping found"
-                    ));
-
-            device.setLastSeenAt(
-                    packet.recordedAt() != null ? packet.recordedAt() : Instant.now()
-            );
-
-            Vehicle vehicle = device.getVehicle();
-
-            TelematicsEvent event = toTelematicsEvent(vehicle, packet);
-
-            TelematicsEvent saved = telematicsMetrics.record(
-                    telematicsMetrics.getEventSaveTimer(),
-                    () -> telematicsEventRepository.save(event)
-            );
-
-            updateVehicleCurrentState(vehicle, saved);
-
-            // Device reported again, so resolve stale/offline alerts
-            resolveOpenDeviceAlerts(vehicle);
-
-            if (packet.locationTrail() != null && !packet.locationTrail().isBlank()) {
-                saveTrailPoints(vehicle, packet, saved);
-            }
-
-            messagingTemplate.convertAndSend(
-                    "/topic/fleets/" + vehicle.getFleet().getId(),
-                    toLiveEvent(saved)
-            );
-
-            generateTelematicsAlerts(vehicle, saved);
-            generateDriverBehaviorAlerts(vehicle, packet);
-
-            safetyScoreUpdaterService.updateFromEvent(vehicle, saved, packet.reasonText());
-
-            // Publish live safety score dashboard update
-            safetyScoreRealtimePublisher.publish(vehicle.getFleet().getId());
-
-            // Publish live dashboard update
-            dashboardRealtimePublisher.publish(vehicle.getFleet().getId());
-
-            raw.setProcessed(true);
-            rawTelematicsPacketRepository.save(raw);
-
-            telematicsMetrics.packetProcessed(source);
-
-            logger.info(
-                    "Telemetry packet processed source={} serial={} format={} reason={} vehicleId={} fleetId={} recordedAt={} processingMs={}",
-                    source,
-                    packet.serialNumber(),
-                    packet.formatCrc(),
-                    packet.reasonText(),
-                    vehicle.getId(),
-                    vehicle.getFleet().getId(),
-                    packet.recordedAt(),
-                    System.currentTimeMillis() - startMs
-            );
-
-            return saved;
-
-        } catch (Exception ex) {
-            telematicsMetrics.packetFailed(source, classifyFailure(ex));
-
-            geometrisRawPacketRepository.save(
-                    GeometrisRawPacket.builder()
-                            .rawPacket(rawPacket)
-                            .parsedSuccessfully(false)
-                            .errorMessage(ex.getMessage())
-                            .build()
-            );
-
-            raw.setProcessed(false);
-            raw.setErrorMessage(ex.getMessage());
-            rawTelematicsPacketRepository.save(raw);
-
-            logger.warn(
-                    "Telemetry packet failed source={} failureReason={} processingMs={} error={}",
-                    source,
-                    classifyFailure(ex),
-                    System.currentTimeMillis() - startMs,
-                    ex.getMessage()
-            );
-
-            throw ex;
-        } finally {
-            telematicsMetrics.stopTimer(sample, source);
-        }
-    }
-
-    private void updateVehicleCurrentState(
-            Vehicle vehicle,
-            TelematicsEvent event
-    ) {
-        VehicleCurrentState state = vehicleCurrentStateRepository
-                .findById(vehicle.getId())
-                .orElseGet(() -> {
-                    VehicleCurrentState newState = new VehicleCurrentState();
-                    newState.setVehicle(vehicle);
-                    return newState;
-                });
-
-        state.setLatitude(event.getLatitude());
-        state.setLongitude(event.getLongitude());
-        state.setSpeedMph(event.getSpeedMph());
-        state.setFuelLevelPercent(event.getFuelLevelPercent());
-        state.setHeadingDegrees(event.getHeadingDegrees());
-        state.setCheckEngine(event.isCheckEngine());
-        state.setLastSeenAt(
-                event.getRecordedAt() != null ? event.getRecordedAt() : Instant.now()
-        );
-
-        vehicleCurrentStateRepository.save(state);
-    }
-
-    private TelematicsEvent toTelematicsEvent(
-            Vehicle vehicle,
-            GeometrisPacket packet
-    ) {
-        return TelematicsEvent.builder()
-                .vehicle(vehicle)
-                .recordedAt(packet.recordedAt())
-                .latitude(packet.latitude())
-                .longitude(packet.longitude())
-                .speedMph(packet.speedMph())
-                .odometerMiles(packet.ecuOdometerMiles() != null
-                        ? packet.ecuOdometerMiles()
-                        : packet.gpsOdometerMiles())
-                .fuelLevelPercent(packet.fuelLevelPercent())
-                .engineTempF(celsiusToFahrenheit(packet.coolantTempC()))
-                .batteryVoltage(packet.batteryVoltage())
-                .checkEngine(hasActiveDtc(packet.activeDtc()))
-                .headingDegrees(packet.headingDegrees())
-                .idleMinutes(secondsToMinutes(packet.totalIdleDurationSeconds()))
-                .harshBraking("HARDBRAKE".equalsIgnoreCase(packet.reasonText()))
-                .build();
+    public void ingestGeometrisPacketEntity(String rawPacket, TelemetrySource source) {
+        processGeometrisPacket(rawPacket, source);
     }
 
     @Transactional(readOnly = true)
@@ -452,80 +260,241 @@ public class TelematicsService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
-    public PageResponse<TelematicsTripResponse> getVehicleTrips(
-            UUID userId,
-            UUID vehicleId,
-            Instant start,
-            Instant end,
-            int gapMinutes,
-            int page,
-            int size
+    private void updateEventAndIdleState(
+            VehicleCurrentState state,
+            TelematicsEvent event,
+            GeometrisPacket packet
     ) {
-        Vehicle vehicle = vehicleRepository.findById(vehicleId)
-                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+        Instant recordedAt = event.getRecordedAt();
 
-        fleetAccessService.validateAccess(vehicle.getFleet().getId(), userId);
+        if (
+                recordedAt != null
+                        && state.getLastSeenAt() != null
+                        && recordedAt.isBefore(state.getLastSeenAt())
+        ) {
+            /*
+             * Keep the event for history, but do not let an older packet
+             * overwrite current state or current idle-session tracking.
+             */
+            return;
+        }
 
-        List<TelematicsEvent> points =
-                telematicsEventRepository.findHistoryByVehicleId(vehicleId, start, end);
+        if (event.getLatitude() != null) {
+            state.setLatitude(event.getLatitude());
+        }
 
-        List<List<TelematicsEvent>> trips = new ArrayList<>();
-        List<TelematicsEvent> currentTrip = new ArrayList<>();
+        if (event.getLongitude() != null) {
+            state.setLongitude(event.getLongitude());
+        }
 
-        for (TelematicsEvent point : points) {
-            if (currentTrip.isEmpty()) {
-                currentTrip.add(point);
-                continue;
-            }
+        if (event.getSpeedMph() != null) {
+            state.setSpeedMph(event.getSpeedMph());
+        }
 
-            TelematicsEvent previous = currentTrip.get(currentTrip.size() - 1);
+        if (event.getHeadingDegrees() != null) {
+            state.setHeadingDegrees(event.getHeadingDegrees());
+        }
 
-//            long gapMinutes = ChronoUnit.MINUTES.between(
-//                    previous.getRecordedAt(),
-//                    point.getRecordedAt()
-//            );
+        if (event.getFuelLevelPercent() != null) {
+            state.setFuelLevelPercent(
+                    event.getFuelLevelPercent()
+            );
+        }
 
-            long gap = ChronoUnit.MINUTES.between(
-                    previous.getRecordedAt(),
-                    point.getRecordedAt()
+        /*
+         * Only change check-engine state when the packet actually
+         * includes the DTC field.
+         */
+        if (packet != null && packet.activeDtc() != null) {
+            state.setCheckEngine(event.isCheckEngine());
+        }
+
+        updateIdleState(state, event, packet);
+
+        state.setLastSeenAt(
+                event.getRecordedAt() != null
+                        ? event.getRecordedAt()
+                        : Instant.now()
+        );
+    }
+
+    private void resolveExcessiveIdleAlertIfCleared(
+            Vehicle vehicle,
+            TelematicsEvent event
+    ) {
+        if (event.getIdleMinutes() != null
+                && event.getIdleMinutes() >= 30) {
+            return;
+        }
+
+        alertRepository
+                .findByVehicleIdAndTypeInAndResolvedFalse(
+                        vehicle.getId(),
+                        List.of(AlertType.EXCESSIVE_IDLE)
+                )
+                .forEach(alert -> {
+                    alert.setResolved(true);
+                    alert.setResolvedAt(Instant.now());
+                    alertRepository.save(alert);
+                });
+    }
+
+    private void processGeometrisPacket(String rawPacket, TelemetrySource source) {
+        telematicsMetrics.packetReceived(source);
+        Timer.Sample sample = telematicsMetrics.startTimer();
+        long startMs = System.currentTimeMillis();
+        RawTelematicsPacket raw = saveRawPacket(rawPacket);
+
+        try {
+            GeometrisPacket packet = telematicsMetrics.record(
+                    telematicsMetrics.getParseTimer(),
+                    () -> geometrisPacketParser.parse(rawPacket)
             );
 
-            if (gap >= gapMinutes) {
-                trips.add(currentTrip);
-                currentTrip = new ArrayList<>();
+            telematicsMetrics.packetType(
+                    source,
+                    packet.formatCrc(),
+                    packet.reasonText()
+            );
+
+            raw.setDeviceSerial(packet.serialNumber());
+            raw.setPacketType(packet.formatCrc());
+
+            GeometrisRawPacket geometrisRawPacket = GeometrisRawPacket.builder()
+                    .serialNumber(packet.serialNumber())
+                    .reasonText(packet.reasonText())
+                    .rawPacket(rawPacket)
+                    .parsedSuccessfully(true)
+                    .build();
+
+            geometrisRawPacketRepository.save(geometrisRawPacket);
+
+            TelematicsDevice device = telematicsDeviceRepository
+                    .findByProviderAndSerialNumberAndActiveTrue(
+                            TelematicsProvider.GEOMETRIS,
+                            packet.serialNumber()
+                    )
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "No active Geometris device mapping found"
+                    ));
+
+            device.setLastSeenAt(
+                    packet.recordedAt() != null ? packet.recordedAt() : Instant.now()
+            );
+
+            Vehicle vehicle = device.getVehicle();
+
+            TelematicsEvent event =
+                    toTelematicsEvent(vehicle, packet);
+
+            VehicleCurrentState state =
+                    getOrCreateCurrentState(vehicle);
+
+            updateEventAndIdleState(
+                    state,
+                    event,
+                    packet
+            );
+
+            TelematicsEvent saved = telematicsMetrics.record(
+                    telematicsMetrics.getEventSaveTimer(),
+                    () -> telematicsEventRepository.save(event)
+            );
+
+            vehicleCurrentStateRepository.save(state);
+
+            resolveExcessiveIdleAlertIfCleared(
+                    vehicle,
+                    saved
+            );
+
+            // Device reported again, so resolve stale/offline alerts
+            resolveOpenDeviceAlerts(vehicle);
+
+            if (packet.locationTrail() != null && !packet.locationTrail().isBlank()) {
+                saveTrailPoints(vehicle, packet, saved);
             }
 
-//            if (gapMinutes >= 15) {
-//                trips.add(currentTrip);
-//                currentTrip = new ArrayList<>();
-//            }
+            messagingTemplate.convertAndSend(
+                    "/topic/fleets/" + vehicle.getFleet().getId(),
+                    toLiveEvent(saved)
+            );
 
-            currentTrip.add(point);
+            generateTelematicsAlerts(
+                    vehicle,
+                    saved,
+                    packet
+            );
+            generateDriverBehaviorAlerts(vehicle, packet);
+
+            safetyScoreUpdaterService.updateFromEvent(vehicle, saved, packet.reasonText());
+
+            // Publish live safety score dashboard update
+            safetyScoreRealtimePublisher.publish(vehicle.getFleet().getId());
+
+            // Publish live dashboard update
+            dashboardRealtimePublisher.publish(vehicle.getFleet().getId());
+
+            raw.setProcessed(true);
+            rawTelematicsPacketRepository.save(raw);
+
+            telematicsMetrics.packetProcessed(source);
+
+            logger.info(
+                    "Telemetry packet processed source={} serial={} format={} reason={} vehicleId={} fleetId={} recordedAt={} processingMs={}",
+                    source,
+                    packet.serialNumber(),
+                    packet.formatCrc(),
+                    packet.reasonText(),
+                    vehicle.getId(),
+                    vehicle.getFleet().getId(),
+                    packet.recordedAt(),
+                    System.currentTimeMillis() - startMs
+            );
+
+        } catch (Exception ex) {
+            telematicsMetrics.packetFailed(source, classifyFailure(ex));
+
+            geometrisRawPacketRepository.save(
+                    GeometrisRawPacket.builder()
+                            .rawPacket(rawPacket)
+                            .parsedSuccessfully(false)
+                            .errorMessage(ex.getMessage())
+                            .build()
+            );
+
+            raw.setProcessed(false);
+            raw.setErrorMessage(ex.getMessage());
+            rawTelematicsPacketRepository.save(raw);
+
+            logger.warn(
+                    "Telemetry packet failed source={} failureReason={} processingMs={} error={}",
+                    source,
+                    classifyFailure(ex),
+                    System.currentTimeMillis() - startMs,
+                    ex.getMessage()
+            );
+
+            throw ex;
+        } finally {
+            telematicsMetrics.stopTimer(sample, source);
         }
+    }
 
-        if (!currentTrip.isEmpty()) {
-            trips.add(currentTrip);
-        }
+    private VehicleCurrentState getOrCreateCurrentState(
+            Vehicle vehicle
+    ) {
+        return vehicleCurrentStateRepository
+                .findById(vehicle.getId())
+                .orElseGet(() -> {
+                    VehicleCurrentState state =
+                            new VehicleCurrentState();
 
-        List<TelematicsTripResponse> tripResponses = trips.stream()
-                .filter(trip -> trip.size() >= 2)
-                .map(this::toTripResponse)
-                .toList();
+                    state.setVehicle(vehicle);
+                    state.setCurrentIdleMinutes(0);
 
-        int safePage = Math.max(page, 0);
-        int safeSize = Math.max(size, 1);
-
-        int from = Math.min(safePage * safeSize, tripResponses.size());
-        int to = Math.min(from + safeSize, tripResponses.size());
-
-        return new PageResponse<>(
-                tripResponses.subList(from, to),
-                safePage,
-                safeSize,
-                tripResponses.size(),
-                (int) Math.ceil((double) tripResponses.size() / safeSize)
-        );
+                    return state;
+                });
     }
 
     private BigDecimal celsiusToFahrenheit(Integer celsius) {
@@ -536,14 +505,6 @@ public class TelematicsService {
         return BigDecimal.valueOf((celsius * 9.0 / 5.0) + 32);
     }
 
-    private Integer secondsToMinutes(Integer seconds) {
-        if (seconds == null) {
-            return 0;
-        }
-
-        return seconds / 60;
-    }
-
     private boolean hasActiveDtc(String dtc) {
         return dtc != null
                 && !dtc.isBlank()
@@ -551,70 +512,140 @@ public class TelematicsService {
                 && !"0".equals(dtc);
     }
 
-    private void generateTelematicsAlerts(Vehicle vehicle, TelematicsEvent event) {
-        if (isLessThan(event.getFuelLevelPercent(), BigDecimal.valueOf(15))) {
-            createAlert(vehicle, AlertType.LOW_FUEL, AlertSeverity.WARNING,
-                    "%s %s fuel level is below 15%%.".formatted(vehicle.getMake(), vehicle.getModel()));
+    private void generateTelematicsAlerts(
+            Vehicle vehicle,
+            TelematicsEvent event,
+            GeometrisPacket packet
+    ) {
+        if (
+                packet != null && packet.fuelLevelPercent() != null
+                        && isLessThan(
+                        event.getFuelLevelPercent(),
+                        BigDecimal.valueOf(15)
+                )
+        ) {
+            createAlert(
+                    vehicle,
+                    AlertType.LOW_FUEL,
+                    AlertSeverity.WARNING,
+                    "%s %s fuel level is below 15%%."
+                            .formatted(
+                                    vehicle.getMake(),
+                                    vehicle.getModel()
+                            )
+            );
         }
 
-        if (isGreaterThan(event.getEngineTempF(), BigDecimal.valueOf(230))) {
-            createAlert(vehicle, AlertType.ENGINE_OVERHEAT, AlertSeverity.CRITICAL,
-                    "%s %s engine temperature is above safe range.".formatted(vehicle.getMake(), vehicle.getModel()));
+        if (
+                packet != null && packet.coolantTempC() != null
+                        && isGreaterThan(
+                        event.getEngineTempF(),
+                        BigDecimal.valueOf(230)
+                )
+        ) {
+            createAlert(
+                    vehicle,
+                    AlertType.ENGINE_OVERHEAT,
+                    AlertSeverity.CRITICAL,
+                    "%s %s engine temperature is above safe range."
+                            .formatted(
+                                    vehicle.getMake(),
+                                    vehicle.getModel()
+                            )
+            );
         }
 
-        if (isLessThan(event.getBatteryVoltage(), BigDecimal.valueOf(11.8))) {
-            createAlert(vehicle, AlertType.LOW_BATTERY, AlertSeverity.WARNING,
-                    "%s %s battery voltage is low.".formatted(vehicle.getMake(), vehicle.getModel()));
+        if (
+                packet != null && packet.batteryVoltage() != null
+                        && isLessThan(
+                        event.getBatteryVoltage(),
+                        BigDecimal.valueOf(11.8)
+                )
+        ) {
+            createAlert(
+                    vehicle,
+                    AlertType.LOW_BATTERY,
+                    AlertSeverity.WARNING,
+                    "%s %s battery voltage is low."
+                            .formatted(
+                                    vehicle.getMake(),
+                                    vehicle.getModel()
+                            )
+            );
         }
 
-        if (isGreaterThan(event.getSpeedMph(), BigDecimal.valueOf(85))) {
-            createAlert(vehicle, AlertType.SPEEDING, AlertSeverity.WARNING,
-                    "%s %s exceeded 85 mph.".formatted(vehicle.getMake(), vehicle.getModel()));
+        if (
+                event.getSpeedMph() != null
+                        && isGreaterThan(
+                        event.getSpeedMph(),
+                        BigDecimal.valueOf(85)
+                )
+        ) {
+            createAlert(
+                    vehicle,
+                    AlertType.SPEEDING,
+                    AlertSeverity.WARNING,
+                    "%s %s exceeded 85 mph."
+                            .formatted(
+                                    vehicle.getMake(),
+                                    vehicle.getModel()
+                            )
+            );
         }
 
-        if (event.getIdleMinutes() != null && event.getIdleMinutes() > 30) {
-            createAlert(vehicle, AlertType.EXCESSIVE_IDLE, AlertSeverity.WARNING,
-                    "%s %s idled for more than 30 minutes.".formatted(vehicle.getMake(), vehicle.getModel()));
+        if (
+                event.getIdleMinutes() != null
+                        && event.getIdleMinutes() >= 30
+        ) {
+            createAlert(
+                    vehicle,
+                    AlertType.EXCESSIVE_IDLE,
+                    AlertSeverity.WARNING,
+                    "%s %s has been idling for %d minutes."
+                            .formatted(
+                                    vehicle.getMake(),
+                                    vehicle.getModel(),
+                                    event.getIdleMinutes()
+                            )
+            );
         }
 
-        if (event.isCheckEngine()) {
-            createAlert(vehicle, AlertType.CHECK_ENGINE, AlertSeverity.CRITICAL,
-                    "%s %s reported a check engine fault.".formatted(vehicle.getMake(), vehicle.getModel()));
+        if (
+                packet != null && packet.activeDtc() != null
+                        && event.isCheckEngine()
+        ) {
+            createAlert(
+                    vehicle,
+                    AlertType.CHECK_ENGINE,
+                    AlertSeverity.CRITICAL,
+                    "%s %s reported a check engine fault."
+                            .formatted(
+                                    vehicle.getMake(),
+                                    vehicle.getModel()
+                            )
+            );
         }
     }
 
-    private Alert createAlert(
+    private void createAlert(
             Vehicle vehicle,
             AlertType type,
             AlertSeverity severity,
             String message
     ) {
         boolean duplicateOpenAlert =
-                alertRepository.existsByVehicleIdAndTypeAndResolvedFalse(vehicle.getId(), type);
+                alertRepository.existsByVehicleIdAndTypeAndResolvedFalse(
+                        vehicle.getId(),
+                        type
+                );
 
         if (duplicateOpenAlert) {
-            logger.info(
-                    "Duplicate open alert exists. Publishing live alert only to /topic/fleets/{}/alerts: {}",
-                    vehicle.getFleet().getId(),
-                    message
+            logger.debug(
+                    "Skipping duplicate open alert vehicleId={}, type={}",
+                    vehicle.getId(),
+                    type
             );
-
-            messagingTemplate.convertAndSend(
-                    "/topic/fleets/" + vehicle.getFleet().getId() + "/alerts",
-                    new LiveAlertEvent(
-                            null,
-                            vehicle.getFleet().getId(),
-                            vehicle.getId(),
-                            "%s %s".formatted(vehicle.getMake(), vehicle.getModel()),
-                            vehicle.getLicensePlate(),
-                            type.name(),
-                            severity.name(),
-                            message,
-                            Instant.now()
-                    )
-            );
-
-            return null;
+            return;
         }
 
         Alert alert = Alert.builder()
@@ -637,19 +668,16 @@ public class TelematicsService {
                         : NotificationType.SYSTEM
         );
 
-        logger.info(
-                "Publishing live alert to /topic/fleets/{}/alerts: {}",
-                vehicle.getFleet().getId(),
-                message
-        );
-
         messagingTemplate.convertAndSend(
                 "/topic/fleets/" + vehicle.getFleet().getId() + "/alerts",
                 new LiveAlertEvent(
                         saved.getId(),
                         vehicle.getFleet().getId(),
                         vehicle.getId(),
-                        "%s %s".formatted(vehicle.getMake(), vehicle.getModel()),
+                        "%s %s".formatted(
+                                vehicle.getMake(),
+                                vehicle.getModel()
+                        ),
                         vehicle.getLicensePlate(),
                         saved.getType().name(),
                         saved.getSeverity().name(),
@@ -658,7 +686,12 @@ public class TelematicsService {
                 )
         );
 
-        return saved;
+        logger.info(
+                "Created and published alert alertId={}, vehicleId={}, type={}",
+                saved.getId(),
+                vehicle.getId(),
+                type
+        );
     }
 
     private boolean isLessThan(BigDecimal value, BigDecimal threshold) {
@@ -733,93 +766,11 @@ public class TelematicsService {
 //                            .ignitionOn(latestEvent.isIgnitionOn())
                             .build();
 
-            TelematicsEvent saved = telematicsMetrics.record(
+            telematicsMetrics.record(
                     telematicsMetrics.getEventSaveTimer(),
                     () -> telematicsEventRepository.save(trailEvent)
             );
         }
-    }
-
-    private TelematicsTripResponse toTripResponse(List<TelematicsEvent> trip) {
-        Instant startTime = trip.get(0).getRecordedAt();
-        Instant endTime = trip.get(trip.size() - 1).getRecordedAt();
-
-        long durationMinutes = ChronoUnit.MINUTES.between(startTime, endTime);
-
-        BigDecimal maxSpeed = trip.stream()
-                .map(TelematicsEvent::getSpeedMph)
-                .filter(speed -> speed != null)
-                .max(BigDecimal::compareTo)
-                .orElse(BigDecimal.ZERO);
-
-        BigDecimal avgSpeed = BigDecimal.valueOf(
-                trip.stream()
-                        .map(TelematicsEvent::getSpeedMph)
-                        .filter(speed -> speed != null)
-                        .mapToDouble(BigDecimal::doubleValue)
-                        .average()
-                        .orElse(0)
-        );
-
-        BigDecimal distanceMiles = calculateDistanceMiles(trip);
-
-        return new TelematicsTripResponse(
-                startTime,
-                endTime,
-                trip.size(),
-                maxSpeed,
-                avgSpeed,
-                durationMinutes,
-                distanceMiles
-        );
-    }
-
-    private BigDecimal calculateDistanceMiles(List<TelematicsEvent> points) {
-        double totalMiles = 0.0;
-
-        for (int i = 1; i < points.size(); i++) {
-            TelematicsEvent previous = points.get(i - 1);
-            TelematicsEvent current = points.get(i);
-
-            if (previous.getLatitude() == null ||
-                    previous.getLongitude() == null ||
-                    current.getLatitude() == null ||
-                    current.getLongitude() == null) {
-                continue;
-            }
-
-            totalMiles += haversineMiles(
-                    previous.getLatitude(),
-                    previous.getLongitude(),
-                    current.getLatitude(),
-                    current.getLongitude()
-            );
-        }
-
-        return BigDecimal.valueOf(totalMiles);
-    }
-
-    private double haversineMiles(
-            double lat1,
-            double lon1,
-            double lat2,
-            double lon2
-    ) {
-        final double earthRadiusMiles = 3958.8;
-
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLon = Math.toRadians(lon2 - lon1);
-
-        double a =
-                Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                        + Math.cos(Math.toRadians(lat1))
-                        * Math.cos(Math.toRadians(lat2))
-                        * Math.sin(dLon / 2)
-                        * Math.sin(dLon / 2);
-
-        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-        return earthRadiusMiles * c;
     }
 
     private RawTelematicsPacket saveRawPacket(String rawPacket) {
@@ -936,5 +887,148 @@ public class TelematicsService {
         }
 
         return TelemetryFailureReason.UNKNOWN;
+    }
+
+    private void updateManualEventState(
+            VehicleCurrentState state,
+            TelematicsEvent event
+    ) {
+        if (event.getLatitude() != null) {
+            state.setLatitude(event.getLatitude());
+        }
+
+        if (event.getLongitude() != null) {
+            state.setLongitude(event.getLongitude());
+        }
+
+        if (event.getSpeedMph() != null) {
+            state.setSpeedMph(event.getSpeedMph());
+        }
+
+        if (event.getHeadingDegrees() != null) {
+            state.setHeadingDegrees(event.getHeadingDegrees());
+        }
+
+        if (event.getFuelLevelPercent() != null) {
+            state.setFuelLevelPercent(
+                    event.getFuelLevelPercent()
+            );
+        }
+
+        state.setCheckEngine(event.isCheckEngine());
+
+        state.setLastSeenAt(
+                event.getRecordedAt() != null
+                        ? event.getRecordedAt()
+                        : Instant.now()
+        );
+    }
+
+    private void updateIdleState(
+            VehicleCurrentState state,
+            TelematicsEvent event,
+            GeometrisPacket packet
+    ) {
+        Instant recordedAt = event.getRecordedAt() != null
+                ? event.getRecordedAt()
+                : Instant.now();
+
+        /*
+         * Update ignition only when this packet contains ignition data.
+         * A 5873 packet does not, so it must not turn ignition off.
+         */
+        if (packet != null && packet.ignitionOn() != null) {
+            state.setIgnitionOn(packet.ignitionOn());
+        }
+
+        Boolean ignitionOn = state.getIgnitionOn();
+        BigDecimal speedMph = event.getSpeedMph();
+
+        boolean stationary =
+                speedMph != null
+                        && speedMph.compareTo(
+                        IDLE_SPEED_THRESHOLD_MPH
+                ) <= 0;
+
+        boolean currentlyIdling =
+                Boolean.TRUE.equals(ignitionOn)
+                        && stationary;
+
+        if (!currentlyIdling) {
+            state.setIdleStartedAt(null);
+            state.setCurrentIdleMinutes(0);
+            event.setIdleMinutes(0);
+            return;
+        }
+
+        if (state.getIdleStartedAt() == null) {
+            state.setIdleStartedAt(recordedAt);
+        }
+
+        long idleMinutes = Math.max(
+                0,
+                ChronoUnit.MINUTES.between(
+                        state.getIdleStartedAt(),
+                        recordedAt
+                )
+        );
+
+        int safeIdleMinutes = idleMinutes > Integer.MAX_VALUE
+                ? Integer.MAX_VALUE
+                : (int) idleMinutes;
+
+        state.setCurrentIdleMinutes(safeIdleMinutes);
+        event.setIdleMinutes(safeIdleMinutes);
+    }
+
+    private TelematicsEvent toTelematicsEvent(
+            Vehicle vehicle,
+            GeometrisPacket packet
+    ) {
+        return TelematicsEvent.builder()
+                .vehicle(vehicle)
+                .recordedAt(packet.recordedAt())
+                .latitude(packet.latitude())
+                .longitude(packet.longitude())
+                .speedMph(packet.speedMph())
+                .odometerMiles(packet.ecuOdometerMiles() != null
+                        ? packet.ecuOdometerMiles()
+                        : packet.gpsOdometerMiles())
+                .fuelLevelPercent(packet.fuelLevelPercent())
+                .engineTempF(celsiusToFahrenheit(packet.coolantTempC()))
+                .batteryVoltage(packet.batteryVoltage())
+                .checkEngine(hasActiveDtc(packet.activeDtc()))
+                .headingDegrees(packet.headingDegrees())
+//                .idleMinutes(secondsToMinutes(packet.totalIdleDurationSeconds()))
+                .idleMinutes(0)
+                .harshBraking("HARDBRAKE".equalsIgnoreCase(packet.reasonText()))
+                .build();
+    }
+
+    private GeometrisRawPacketResponse toRawPacketResponse(GeometrisRawPacket packet) {
+        return new GeometrisRawPacketResponse(
+                packet.getId(),
+                packet.getSerialNumber(),
+                packet.getReasonText(),
+                packet.isParsedSuccessfully(),
+                packet.getErrorMessage(),
+                packet.getReceivedAt()
+        );
+    }
+
+    private TelematicsDeviceResponse toDeviceResponse(TelematicsDevice device) {
+        return new TelematicsDeviceResponse(
+                device.getId(),
+                device.getVehicle().getId(),
+                device.getProvider(),
+                device.getExternalDeviceId(),
+                device.getSerialNumber(),
+                device.getImei(),
+                device.getVin(),
+                device.isActive(),
+                device.getCreatedAt(),
+                device.getUpdatedAt(),
+                device.getLastSeenAt()
+        );
     }
 }
