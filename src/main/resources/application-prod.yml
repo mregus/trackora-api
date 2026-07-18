@@ -71,7 +71,7 @@ aws:
 
 azure:
   servicebus:
-    enabled: ${AZURE_SERVICE_BUS_ENABLED:false}
+    enabled: ${AZURE_SERVICE_BUS_ENABLED:true}
     connection-string: ${AZURE_SERVICE_BUS_CONNECTION_STRING}
     queue-name: geometris-raw-packets
 
