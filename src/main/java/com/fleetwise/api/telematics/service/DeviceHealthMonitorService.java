@@ -5,10 +5,12 @@ import com.fleetwise.api.alert.entity.AlertType;
 import com.fleetwise.api.alert.repository.AlertRepository;
 import com.fleetwise.api.telematics.entity.VehicleCurrentState;
 import com.fleetwise.api.telematics.repository.VehicleCurrentStateRepository;
+import com.fleetwise.api.vehicle.entity.Vehicle;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -22,16 +24,20 @@ public class DeviceHealthMonitorService {
     private final TelematicsService telematicsService;
     private final AlertRepository alertRepository;
 
+    @Transactional
     @Scheduled(fixedDelayString = "${telematics.device-health.check-delay-ms:300000}")
     public void checkDeviceHealth() {
-        Instant staleCutoff = Instant.now().minusSeconds(15 * 60);
-        Instant offlineCutoff = Instant.now().minusSeconds(60 * 60);
+        Instant now = Instant.now();
+        Instant staleCutoff = now.minusSeconds(15 * 60);
+        Instant offlineCutoff = now.minusSeconds(60 * 60);
 
         List<VehicleCurrentState> staleOrOffline =
-                vehicleCurrentStateRepository.findByLastSeenAtBefore(staleCutoff);
+                vehicleCurrentStateRepository.findStaleStatesWithVehicle(staleCutoff);
 
         for (VehicleCurrentState state : staleOrOffline) {
-            if (state.getVehicle() == null || state.getLastSeenAt() == null) {
+            Vehicle vehicle = state.getVehicle();
+
+            if (vehicle == null || state.getLastSeenAt() == null) {
                 continue;
             }
 
@@ -44,17 +50,20 @@ public class DeviceHealthMonitorService {
                     : AlertSeverity.WARNING;
 
             if (!alertRepository.existsByVehicleIdAndTypeAndResolvedFalse(
-                    state.getVehicle().getId(),
+                    vehicle.getId(),
                     type)) {
+
                 telematicsService.createSystemAlert(
-                        state.getVehicle(),
+                        vehicle,
                         type,
                         severity,
                         "%s %s device is %s. Last seen: %s"
                                 .formatted(
-                                        state.getVehicle().getMake(),
-                                        state.getVehicle().getModel(),
-                                        type == AlertType.DEVICE_OFFLINE ? "offline" : "stale",
+                                        vehicle.getMake(),
+                                        vehicle.getModel(),
+                                        type == AlertType.DEVICE_OFFLINE
+                                                ? "offline"
+                                                : "stale",
                                         state.getLastSeenAt()
                                 )
                 );
