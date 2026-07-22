@@ -3,7 +3,7 @@ server:
 
 spring:
   application:
-    name: fleetwise-api
+    name: trackora-api
   datasource:
     url: jdbc:postgresql://localhost:5432/fleetwise
     username: fleetwise
